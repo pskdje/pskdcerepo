@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta charset="UTF-8" />
+		<title>Time</title>
+		<script src="https://github.com/jjonline/calendar.js/raw/master/calendar.js"></script>
+		<style>
+body {
+	margin: 0;
+	padding: 0;
+}
+.zzf {
+	display: flex;
+	height: 100%;
+	width: 100%
+}
+.zzt {
+	flex: 1;
+}
+#app {
+	text-align: center;
+	font-family: monospace;
+}
+#time{
+	font-size: 2em;
+	margin: 0.5em;
+}
+#wa {
+	position: fixed;
+	bottom: 0;
+	display: block;
+	margin: 10px;
+	border: 5px solid gray;
+	padding: 10px;
+	box-sizing: border-box;
+	width: calc(100% - 20px);
+}
+		</style>
+	</head>
+	<body>
+		<!-- 一个简单的日期时间显示 -->
+		<div class="zzf">
+			<div class="zzt"></div>
+			<div class="zzf">
+				<div class="zzt"></div>
+				<div id="app">
+					<p id="time">00:00:00</p>
+					<p><span id="date">0000年00月00日</span> <span id="week">星期日</span></p>
+					<p><span id="lunar_date">农历年月日</span> <span id="chrono">时辰</span><span id="moment">时刻</span></p>
+				</div>
+				<div class="zzt"></div>
+			</div>
+			<div class="zzt"></div>
+		</div>
+		<article id="wa">
+			<p>页面作者: pskdje (部分代码需要改进)</p>
+			<p>农历计算使用<a target="_blank" href="https://github.com/jjonline/calendar.js">calendar.js</a></p>
+		</article>
+		<script>
+const id_time=document.getElementById("time");
+const id_date=document.getElementById("date");
+const id_week=document.getElementById("week");
+const id_lunar_date=document.getElementById("lunar_date");
+const id_chrono=document.getElementById("chrono");
+const id_moment=document.getElementById("moment");
+if(window.matchMedia("(max-height:200px)and(max-width:300px)").matches){
+	document.getElementById("wa").hidden=true;
+}
+setInterval(function(){
+	var dt=new Date();// 获取时间
+	var mon=dt.getMonth()+1;// 月
+	var day=dt.getDate();// 日
+	var hou=dt.getHours();// 时
+	var min=dt.getMinutes();// 分
+	var sec=dt.getSeconds();// 秒
+	// 添加前导零
+	mon=(mon<10?"0"+mon:String(mon));
+	day=(day<10?"0"+day:String(day));
+	hou=(hou<10?"0"+hou:String(hou));
+	min=(min<10?"0"+min:String(min));
+	sec=(sec<10?"0"+sec:String(sec));
+	id_time.textContent=`${hou}:${min}:${sec}`;// 显示时间
+	id_date.textContent=`${dt.getFullYear()}年${mon}月${day}日`;// 显示日期
+	id_week.textContent="星期"+(function(week_int){// 计算并显示星期
+		switch(week_int){
+			case 0:
+				return "日";
+			case 1:
+				return "一";
+			case 2:
+				return "二";
+			case 3:
+				return "三";
+			case 4:
+				return "四";
+			case 5:
+				return "五";
+			case 6:
+				return "六";
+			default:
+				return "？";
+		}
+	})(dt.getDay());
+},500);
+setInterval(async function(){
+	var cal=calendar.solar2lunar();// 获取农历等信息
+	var dt=new Date();// 获取时间
+	var hou=dt.getHours();
+	id_lunar_date.textContent=`${cal.gzYear}${cal.Animal}年${cal.IMonthCn}${cal.IDayCn}`;// 显示农历日期
+	id_chrono.textContent=(function(hou){// 匹配并显示时辰
+		switch(hou){
+			case 23:
+			case 0:
+				return "子";
+			case 1:
+			case 2:
+				return "丑";
+			case 3:
+			case 4:
+				return "寅";
+			case 5:
+			case 6:
+				return "卯";
+			case 7:
+			case 8:
+				return "辰";
+			case 9:
+			case 10:
+				return "巳";
+			case 11:
+			case 12:
+				return "午";
+			case 13:
+			case 14:
+				return "未";
+			case 15:
+			case 16:
+				return "申";
+			case 17:
+			case 18:
+				return "酉";
+			case 19:
+			case 20:
+				return "戌";
+			case 21:
+			case 22:
+				return "亥";
+			default:
+				return "？";
+		}
+	})(hou)+"时";
+	moment.textContent=(function(h,m){// 比较并显示时刻
+		// 此处时刻并未按照标准。
+		// 若各位有兴趣修改的话可以来贡献。
+		var min=(h?m:m+60);
+		if(min>=0&&min<15)return "一";
+		if(min>=15&&min<30)return "二";
+		if(min>=30&&min<45)return "三";
+		if(min>=45&&min<60)return "四";
+		if(min>=60&&min<75)return "五";
+		if(min>=75&&min<90)return "六";
+		if(min>=90&&min<105)return "七";
+		if(min>=105&&min<120)return "八";
+		return "？";
+	})(hou%2,dt.getMinutes())+"刻";
+},1000);
+		</script>
+	</body>
+</html>
