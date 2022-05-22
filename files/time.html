@@ -1,10 +1,21 @@
 <!DOCTYPE html>
+<!-- 本文件作者: pskdje -->
+<!-- 农历使用`calendar.js`计算 -->
+<!-- `calendar.js`的GitHub仓库: [https://github.com/jjonline/calendar.js] -->
+<!-- 感谢他们提供的农历数据和算法 -->
+<!-- 一些地方的代码有缺陷，有兴趣可帮忙修改。 特别是时刻 -->
 <html>
 	<head>
 		<meta charset="UTF-8" />
 		<title>Time</title>
 		<script src="https://cdn.jsdelivr.net/gh/jjonline/calendar.js@master/calendar.js"></script>
 		<style>
+@media (prefers-color-scheme:dark){
+	body {
+		background-color: black;
+		color: white;
+	}
+}
 body {
 	margin: 0;
 	padding: 0;
@@ -105,7 +116,7 @@ setInterval(function(){
 setInterval(async function(){
 	var cal=calendar.solar2lunar();// 获取农历等信息
 	var dt=new Date();// 获取时间
-	var hou=dt.getHours();
+	var hou=dt.getHours();// 获取时
 	id_lunar_date.textContent=`${cal.gzYear}${cal.Animal}年${cal.IMonthCn}${cal.IDayCn}`;// 显示农历日期
 	id_chrono.textContent=(function(hou){// 匹配并显示时辰
 		switch(hou){
