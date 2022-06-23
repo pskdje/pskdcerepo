@@ -10,36 +10,37 @@
 		<title>Time</title>
 		<script src="https://cdn.jsdelivr.net/gh/jjonline/calendar.js@master/calendar.js"></script>
 		<style>
+/* 暗色 */
 @media (prefers-color-scheme:dark){
 	body {
 		background-color: black;
 		color: white;
 	}
-}
+}/* 隐藏作者信息 */
 body {
 	margin: 0;
 	padding: 0;
+	height: 100vh;
 }
 .zzf {
 	display: flex;
+	flex-direction: column;
+	align-content: center;
+	justify-content: center;
 	height: 100%;
-	width: 100%
-}
-.zzt {
-	flex: 1;
+	width: 100%;
 }
 #app {
 	text-align: center;
 	font-family: monospace;
 }
-#time{
+#time {
 	font-size: 2em;
 	margin: 0.5em;
 }
 #wa {
 	position: fixed;
 	bottom: 0;
-	display: block;
 	margin: 10px;
 	border: 5px solid gray;
 	padding: 10px;
@@ -50,32 +51,43 @@ body {
 	</head>
 	<body>
 		<!-- 一个简单的日期时间显示 -->
-		<div class="zzf">
-			<div class="zzt"></div>
-			<div class="zzf">
-				<div class="zzt"></div>
-				<div id="app">
-					<p id="time">00:00:00</p>
-					<p><span id="date">0000年00月00日</span> <span id="week">星期日</span></p>
-					<p><span id="lunar_date">农历年月日</span> <span id="chrono">时辰</span><span id="moment">时刻</span></p>
-				</div>
-				<div class="zzt"></div>
+		<main class="zzf">
+			<div id="app">
+				<p id="time">00:00:00</p>
+				<p><span id="date">0000年00月00日</span> <span id="week">星期日</span></p>
+				<p><span id="lunar_date">农历年月日</span> <span id="chrono">时辰</span><span id="moment">时刻</span></p>
 			</div>
-			<div class="zzt"></div>
-		</div>
+		</main>
 		<article id="wa">
 			<p>页面作者: pskdje (部分代码需要改进)</p>
 			<p>农历计算使用<a target="_blank" href="https://github.com/jjonline/calendar.js">calendar.js</a></p>
 		</article>
 		<script>
+const id_wa=document.getElementById("wa");
 const id_time=document.getElementById("time");
 const id_date=document.getElementById("date");
 const id_week=document.getElementById("week");
 const id_lunar_date=document.getElementById("lunar_date");
 const id_chrono=document.getElementById("chrono");
 const id_moment=document.getElementById("moment");
-if(window.matchMedia("(max-height:200px)and(max-width:300px)").matches){
-	document.getElementById("wa").hidden=true;
+if((window.parent??window)!==window){
+	id_wa.hidden=true;
+}
+window.onmessage=function(ev){
+	var data=undefined;
+	if(typeof ev.data==="string"){
+		try{data=JSON.parse(ev.data);}catch(e){console.error(e);return;};
+	}else{
+		data=ev.data;
+	};switch(data.command){
+		case undefined:
+			console.warn("command不能为undefined");
+			break;
+		case "hiddenArti":
+			id_wa.hidden=true;
+			console.info("隐藏作者信息");
+			break;
+	}
 }
 setInterval(function(){
 	var dt=new Date();// 获取时间
@@ -175,6 +187,10 @@ setInterval(async function(){
 		return "？";
 	})(hou%2,dt.getMinutes())+"刻";
 },1000);
+console.log("本文件作者: pskdje");
+console.log("使用'calendar.js'显示农历");
+console.log("本文件使用 CC0 协议，'calendar.js'文件请查看其使用的协议。");
+console.log("\n----------\n");
 		</script>
 	</body>
 </html>
