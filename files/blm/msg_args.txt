@@ -1,0 +1,16 @@
+--no-print-enable
+--no-interact-word
+--no-entry-effect
+--no-send-gift
+--no-watched-change
+--no-stop-live-room-list
+--no-hot-rank-changed
+--no-online-rank-count
+--no-online-rank-top3
+--no-online-rank-v2
+--no-hot-rank-settlement
+--no-common-notice-danmaku
+--no-notice-msg
+--no-guard-buy
+--no-user-toast-msg
+--no-widget-banner
