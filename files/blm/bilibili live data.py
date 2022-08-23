@@ -9,6 +9,7 @@ cmdl=(
     "WATCHED_CHANGE",# 看过
     "ENTRY_EFFECT",# 进场
     "SEND_GIFT",# 礼物
+    "COMBO_SEND",# 组合礼物
     "SUPER_CHAT_MESSAGE",# 醒目留言
     "SUPER_CHAT_MESSAGE_JPN",# 醒目留言(日本)
     "LIVE_INTERACTIVE_GAME",
@@ -17,12 +18,16 @@ cmdl=(
     "ROOM_REAL_TIME_MESSAGE_UPDATE",# 数据更新
     "HOT_RANK_CHANGED",# 当前直播间的排行
     "HOT_RANK_CHANGED_V2",
+    "HOT_RANK_SETTLEMENT",# 热门通知
+    "HOT_RANK_SETTLEMENT_V2",# 热门通知
     "ONLINE_RANK_TOP3",# 前三个第一次成为高能用户
     "ONLINE_RANK_V2",
     "WIDGET_BANNER",
+    "COMMON_NOTICE_DANMAKU",# 普通通知
     "NOTICE_MSG",# 通知
     "GUARD_BUY",# 舰队购买
     "USER_TOAST_MSG",
+    "HOT_ROOM_NOTIFY",
 )
 fl=os.listdir("bili live msg data")
 for i in fl:

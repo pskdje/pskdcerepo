@@ -1,31 +1,45 @@
 """哔哩哔哩直播信息流
 使用的第三方库: requests , websockets
 数据包参考自: https://github.com/SocialSisterYi/bilibili-API-collect/blob/master/live/message_stream.md
-数据分析由我自己进行(日期:2022/08/10，请注意时效)
+数据分析由我自己进行(日期:2022/08/20，请注意时效)
 本文件计划只实现基本功能
 """
 
 import sys
 import time
 import json
+import re
 import zlib
 import traceback
 import requests
 import asyncio
 import websockets
 
+if not(sys.version_info[0]==3 and sys.version_info[1]>=10):
+    print("Python 版本需要大于等于3.10")
+    print("否则会出现语法错误")
+    print("Python version >= 3.10")
+    sys.exit(1)
+
 DEBUG=not __debug__
+TIMEFORMAT="%Y/%m/%d-%H:%M:%S"
+runoptions=None
 sequence=0
 hpst=None
+swd=[]
+brs=[]
 
 def error(d=None):
     with open("bili_live_ws_err.txt","w")as f:
         f.write("哔哩哔哩直播信息流\n时间:")
         f.write(time.strftime("%Y/%m/%d-%H:%M:%S%z"))
+        f.write("\n命令行选项: "+str(runoptions))
         f.write("\n部分参数:\n")
         f.write("\tDEBUG= "+str(DEBUG))
         f.write("\n\tsequence= "+str(sequence))
         f.write("\n\thpst: "+repr(hpst))
+        f.write("\n\tlen(swd)="+str(len(swd)))
+        f.write("\n\tlen(brs)="+str(len(brs)))
         f.write("\n异常:\n")
         traceback.print_exc(file=f)
         f.flush()
@@ -86,6 +100,9 @@ def pac(pack,o):
         case "SEND_GIFT":# 礼物
             if not o.no_send_gift:
                 l_send_gift(pack["data"])
+        case "COMBO_SEND":
+            if not o.no_combo_send:
+                l_combo_send(pack["data"])
         case "WATCHED_CHANGE":# 看过
             if not o.no_watched_change:
                 l_watched_change(pack["data"])
@@ -143,6 +160,10 @@ def pac(pack,o):
         case "WIDGET_BANNER":# 小部件
             if not o.no_widget_banner:
                 l_widget_banner(pack["data"])
+        case "ROOM_SKIN_MSG":# 直播间皮肤更新
+            l_room_skin_msg(pack)
+        case "LIVE_MULTI_VIEW_CHANGE":
+            print("[信息]","LIVE_MULTI_VIEW_CHANGE",pack["data"])
         case _:# 未知命令
             if not o.no_print_enable:
                 print(f"[支持] 不支持'{pack['cmd']}'命令")
@@ -204,8 +225,47 @@ def main(roomid,o):
             print("异常关闭\n"+e.__class__.__name__+": "+str(e))
             sys.exit(1)
 
+def shielding_words(f):
+    print("解析屏蔽词…")
+    t=None
+    try:
+        t=f.readline()
+        while t!="":
+            if t[0]=="#":
+                t=f.readline()
+                continue
+            swd.append(t)
+            t=f.readline()
+    except:
+        print("处理屏蔽词时出现错误",file=sys.stderr)
+        error()
+    finally:
+        f.close()
+
+def blocking_rules(f):
+    print("解析屏蔽规则…")
+    t=None
+    try:
+        t=f.readline()
+        while t!="":
+            if t[0]=="#":
+                t=f.readline()
+                continue
+            brs.append(re.compile(t))
+            t=f.readline()
+    except:
+        print("处理屏蔽规则时出现错误",file=sys.stderr)
+        error()
+    finally:
+        f.close()
+
 # 命令处理调用处(开始)
 def l_danmu_msg(d):
+    if d[1]in swd:
+        return
+    for b in brs:
+        if b.search(d[1]):
+            return
     print("[弹幕]",f"{d[2][1]}:",d[1])
 def l_interact_word(d,o):
     info="[交互]"
@@ -223,6 +283,8 @@ def l_entry_effect(d):
     print("[进场]",d["copy_writing"])
 def l_send_gift(d):
     print("[礼物]",d["uname"],d["action"],d["giftName"],"*",d["num"],sep=" ")
+def l_combo_send(d):
+    print("[礼物]",d["uname"],d["action"],d["gift_name"],"*",d["total_num"],sep=" ")
 def l_watched_change(d):
     if __debug__:
         print("[观看]",d["num"],"人看过")
@@ -266,6 +328,8 @@ def l_widget_banner(d):
         if d["widget_list"][wi]==None:
             continue
         print("[小部件]",f"key:{wi}","id",d["widget_list"][wi]["id"],"标题:",d["widget_list"][wi]["title"])
+def l_room_skin_msg(d):
+    print("[信息]","直播间皮肤更新","id:",d["skin_id"],",status:",d["status"],",结束时间:",time.strftime(TIMEFORMAT,time.gmtime(d["end_time"])),",当前时间:",time.strftime(TIMEFORMAT,time.gmtime(d["current_time"])),sep=" ")
 # 命令处理调用处(结束)
 
 if __name__=="__main__":
@@ -277,6 +341,7 @@ if __name__=="__main__":
     parser.add_argument("--no-interact-word",help="关闭直播间交互信息",action="store_true")
     parser.add_argument("--no-entry-effect",help="关闭进场信息",action="store_true")
     parser.add_argument("--no-send-gift",help="关闭礼物信息",action="store_true")
+    parser.add_argument("--no-combo-send",help="关闭组合礼物信息",action="store_true")
     parser.add_argument("--no-watched-change",help="关闭看过信息",action="store_true")
     parser.add_argument("--no-super-chat-message",help="关闭醒目留言信息",action="store_true")
     parser.add_argument("--no-stop-live-room-list",help="关闭停止直播的房间列表信息",action="store_true")
@@ -291,10 +356,20 @@ if __name__=="__main__":
     parser.add_argument("--no-user-toast-msg",help="关闭USER_TOAST_MSG信息",action="store_true")
     parser.add_argument("--no-widget-banner",help="关闭小部件信息",action="store_true")
     parser.add_argument("--no-enter-room",help="关闭进入直播间信息",action="store_true")
+    parser.add_argument("--shielding-words",help="屏蔽词(完全匹配)",type=argparse.FileType("rt"))
+    parser.add_argument("--blocking-rules",help="屏蔽规则",type=argparse.FileType("rt"))
     args=parser.parse_args()
     print("哔哩哔哩直播信息流")
+    if not __debug__:
+        print("命令行选项: ",args)
+    runoptions=args
     roomid=args.roomid
     print("直播间ID:",roomid)
+    if args.shielding_words:
+        shielding_words(args.shielding_words)
+    if args.blocking_rules:
+        blocking_rules(args.blocking_rules)
+    print("连接直播间…")
     try:
         main(roomid,args)
     except KeyboardInterrupt:

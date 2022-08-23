@@ -2,6 +2,7 @@
 --no-interact-word
 --no-entry-effect
 --no-send-gift
+--no-combo-send
 --no-watched-change
 --no-stop-live-room-list
 --no-hot-rank-changed
