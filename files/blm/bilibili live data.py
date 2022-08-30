@@ -28,6 +28,7 @@ cmdl=(
     "GUARD_BUY",# 舰队购买
     "USER_TOAST_MSG",
     "HOT_ROOM_NOTIFY",
+    "DANMU_AGGREGATION",
 )
 fl=os.listdir("bili live msg data")
 for i in fl:

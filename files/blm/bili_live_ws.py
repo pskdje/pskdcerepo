@@ -6,6 +6,7 @@
 """
 
 import sys
+import os
 import time
 import json
 import re
@@ -30,21 +31,36 @@ swd=[]
 brs=[]
 
 def error(d=None):
-    with open("bili_live_ws_err.txt","w")as f:
-        f.write("哔哩哔哩直播信息流\n时间:")
-        f.write(time.strftime("%Y/%m/%d-%H:%M:%S%z"))
-        f.write("\n命令行选项: "+str(runoptions))
-        f.write("\n部分参数:\n")
-        f.write("\tDEBUG= "+str(DEBUG))
-        f.write("\n\tsequence= "+str(sequence))
-        f.write("\n\thpst: "+repr(hpst))
-        f.write("\n\tlen(swd)="+str(len(swd)))
-        f.write("\n\tlen(brs)="+str(len(brs)))
-        f.write("\n异常:\n")
-        traceback.print_exc(file=f)
-        f.flush()
-        if d!=None:
-            f.write("\n其它信息:\n\n"+str(d))
+    dirname="bili_live_ws_err"
+    filename=f"{dirname}/{int(time.time())}.txt"
+    if not os.path.isdir(dirname):
+        os.mkdir(dirname)
+    try:
+        with open(filename,"w")as f:
+            f.write("哔哩哔哩直播信息流\n时间:")
+            f.write(time.strftime("%Y/%m/%d-%H:%M:%S%z"))
+            f.write("\n命令行选项: "+str(runoptions))
+            f.write("\n部分参数:\n")
+            f.write("\tDEBUG= "+str(DEBUG))
+            f.write("\n\tsequence= "+str(sequence))
+            f.write("\n\thpst: "+repr(hpst))
+            f.write("\n\tlen(swd)="+str(len(swd)))
+            f.write("\n\tlen(brs)="+str(len(brs)))
+            f.write("\n异常信息:\n")
+            traceback.print_exc(file=f)
+            f.flush()
+            if d!=None:
+                f.write("\n其它信息:\n\n"+str(d))
+    except PermissionError as e:
+        print("无权限:",e)
+    except OSError as e:
+        print("OSError:",e)
+    except:
+        print("写入异常信息到文件失败！")
+        traceback.print_exc()
+    else:
+        if DEBUG:
+            print("错误信息已存储至",filename)
 
 def bilipack(t,da):
     global sequence
@@ -87,6 +103,14 @@ def femsgd(msg):
             packlist.append(json.loads(item))
     return packlist
 
+def savepack(d):
+    dn="bili_live_ws_pack"
+    fn=f"{dn}/{int(time.time())}.json"
+    if not os.path.isdir(dn):
+        os.mkdir(dn)
+    with open(fn,"w")as f:
+        f.write(json.dumps(d,ensure_ascii=False,indent="\t",sort_keys=False))
+
 def pac(pack,o):
     match pack["cmd"]:
         case "DANMU_MSG":# 弹幕
@@ -111,6 +135,9 @@ def pac(pack,o):
                 l_super_chat_message(pack["data"])
         case "SUPER_CHAT_MESSAGE_JPN":# 醒目留言(日本)
             pass
+        case "SUPER_CHAT_MESSAGE_DELETE":# 醒目留言删除(推测)
+            if not o.no_super_chat_message:
+                l_super_chat_message_delete(pack)
         case "LIVE_INTERACTIVE_GAME":
             pass
         case "ROOM_CHANGE":# 直播间更新(推测)
@@ -124,6 +151,8 @@ def pac(pack,o):
         case "STOP_LIVE_ROOM_LIST":# 停止直播的房间列表(推测)
             if not o.no_stop_live_room_list:
                 l_stop_live_room_list(pack["data"])
+        case "DANMU_AGGREGATION":# 弹幕聚集(?)
+            pass
         case "HOT_RANK_CHANGED":# 当前直播间的排行
             if not o.no_hot_rank_changed:
                 l_hot_rank_changed(pack["data"])
@@ -164,9 +193,16 @@ def pac(pack,o):
             l_room_skin_msg(pack)
         case "LIVE_MULTI_VIEW_CHANGE":
             print("[信息]","LIVE_MULTI_VIEW_CHANGE",pack["data"])
+        case "POPULARITY_RED_POCKET_NEW":# 新红包(?)
+            if not o.no_popularity_red_pocket_new:
+                l_popularity_red_pocket_new(pack["data"])
+        case "POPULARITY_RED_POCKET_START":# 增加屏蔽词(才怪)
+            l_popularity_red_pocket_start(pack["data"])
         case _:# 未知命令
             if not o.no_print_enable:
                 print(f"[支持] 不支持'{pack['cmd']}'命令")
+            if DEBUG or o.save_unknow_datapack:
+                savepack(pack)
 
 def pacs(packlist,o):
     for pack in packlist:
@@ -208,6 +244,7 @@ def main(roomid,o):
         r=requests.get("https://api.live.bilibili.com/xlive/web-room/v1/index/getDanmuInfo?id="+str(roomid))
     except:
         print(sys.exc_info()[1])
+        error()
         if DEBUG:
             raise
     else:
@@ -219,45 +256,57 @@ def main(roomid,o):
         assert d["code"]==0,"code not 0"
         u=d["data"]["host_list"][0]
         try:
-            asyncio.run(bililivemsg(f"""ws://{u["host"]}:{u["ws_port"]}/sub""",roomid,o,d["data"]["token"]))
+            asyncio.run(bililivemsg(f"""wss://{u["host"]}:{u["wss_port"]}/sub""",roomid,o,d["data"]["token"]))
         except websockets.exceptions.ConnectionClosedError as e:
             error()
             print("异常关闭\n"+e.__class__.__name__+": "+str(e))
+            sys.exit(1)
+        except websockets.exceptions.InvalidMessage as e:
+            error()
+            print("信息异常:",e)
+            sys.exit(1)
+        except OSError as e:
+            error()
+            print("网络异常，详细信息请查看文件。")
             sys.exit(1)
 
 def shielding_words(f):
     print("解析屏蔽词…")
     t=None
     try:
-        t=f.readline()
+        t=f.readline().rstrip("\r\n")
         while t!="":
             if t[0]=="#":
-                t=f.readline()
+                t=f.readline().rstrip("\r\n")
                 continue
             swd.append(t)
-            t=f.readline()
+            t=f.readline().rstrip("\r\n")
     except:
         print("处理屏蔽词时出现错误",file=sys.stderr)
         error()
     finally:
         f.close()
+        if DEBUG:
+            print(swd)
 
 def blocking_rules(f):
     print("解析屏蔽规则…")
     t=None
     try:
-        t=f.readline()
+        t=f.readline().rstrip("\r\n")
         while t!="":
             if t[0]=="#":
-                t=f.readline()
+                t=f.readline().rstrip("\r\n")
                 continue
             brs.append(re.compile(t))
-            t=f.readline()
+            t=f.readline().rstrip("\r\n")
     except:
         print("处理屏蔽规则时出现错误",file=sys.stderr)
         error()
     finally:
         f.close()
+        if DEBUG:
+            print(brs)
 
 # 命令处理调用处(开始)
 def l_danmu_msg(d):
@@ -292,6 +341,8 @@ def l_watched_change(d):
         print("[观看]",d["num"],"人看过;","text_large:",d["text_large"])
 def l_super_chat_message(d):
     print("[留言]",f"{d['user_info']['uname']}(￥{d['price']}):",d["message"])
+def l_super_chat_message_delete(d):
+    print("[留言]","醒目留言删除:",d["data"]["ids"])
 def l_room_real_time_message_update(d):
     print("[信息]",d["roomid"],"直播间",d["fans"],"粉丝",sep=" ")
 def l_stop_live_room_list(d):
@@ -330,6 +381,12 @@ def l_widget_banner(d):
         print("[小部件]",f"key:{wi}","id",d["widget_list"][wi]["id"],"标题:",d["widget_list"][wi]["title"])
 def l_room_skin_msg(d):
     print("[信息]","直播间皮肤更新","id:",d["skin_id"],",status:",d["status"],",结束时间:",time.strftime(TIMEFORMAT,time.gmtime(d["end_time"])),",当前时间:",time.strftime(TIMEFORMAT,time.gmtime(d["current_time"])),sep=" ")
+def l_popularity_red_pocket_new(d):
+    print("[通知]",d["uname"],d["action"],"价值",d["price"],"电池的",d["gift_name"],sep=" ")
+def l_popularity_red_pocket_start(d):
+    if d["danmu"]not in swd:
+        swd.append(d["danmu"])
+        print("[屏蔽]","屏蔽词增加:",d["danmu"])
 # 命令处理调用处(结束)
 
 if __name__=="__main__":
@@ -337,6 +394,7 @@ if __name__=="__main__":
     desc="哔哩哔哩直播信息流处理\n允许使用@来引入参数文件"
     parser=argparse.ArgumentParser(usage="%(prog)s [options] roomid",description=desc,formatter_class=argparse.RawDescriptionHelpFormatter,fromfile_prefix_chars="@")
     parser.add_argument("roomid",help="直播间ID",type=int,default=23058)
+    parser.add_argument("-d","--debug",help="开启调试模式",action="store_true")
     parser.add_argument("--no-print-enable",help="不打印不支持的信息",action="store_true")
     parser.add_argument("--no-interact-word",help="关闭直播间交互信息",action="store_true")
     parser.add_argument("--no-entry-effect",help="关闭进场信息",action="store_true")
@@ -356,11 +414,14 @@ if __name__=="__main__":
     parser.add_argument("--no-user-toast-msg",help="关闭USER_TOAST_MSG信息",action="store_true")
     parser.add_argument("--no-widget-banner",help="关闭小部件信息",action="store_true")
     parser.add_argument("--no-enter-room",help="关闭进入直播间信息",action="store_true")
-    parser.add_argument("--shielding-words",help="屏蔽词(完全匹配)",type=argparse.FileType("rt"))
-    parser.add_argument("--blocking-rules",help="屏蔽规则",type=argparse.FileType("rt"))
+    parser.add_argument("--no-popularity-red-pocket-new",help="关闭POPULARITY_RED_POCKET_NEW信息",action="store_true")
+    parser.add_argument("-S","--shielding-words",help="屏蔽词(完全匹配)",type=argparse.FileType("rt"),metavar="FILE")
+    parser.add_argument("-B","--blocking-rules",help="屏蔽规则",type=argparse.FileType("rt"),metavar="FILE")
+    parser.add_argument("-u","--save-unknow-datapack",help="保存未知的数据包",action="store_true")
     args=parser.parse_args()
+    DEBUG=args.debug
     print("哔哩哔哩直播信息流")
-    if not __debug__:
+    if DEBUG:
         print("命令行选项: ",args)
     runoptions=args
     roomid=args.roomid
