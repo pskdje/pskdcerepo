@@ -31,6 +31,7 @@ swd=[]
 brs=[]
 
 def error(d=None):
+    # 错误记录
     dirname="bili_live_ws_err"
     filename=f"{dirname}/{int(time.time())}.txt"
     if not os.path.isdir(dirname):
@@ -39,6 +40,7 @@ def error(d=None):
         with open(filename,"w")as f:
             f.write("哔哩哔哩直播信息流\n时间:")
             f.write(time.strftime("%Y/%m/%d-%H:%M:%S%z"))
+            f.write("\n是否为执行入口: "+str(__name__=="__main__"))
             f.write("\n命令行选项: "+str(runoptions))
             f.write("\n部分参数:\n")
             f.write("\tDEBUG= "+str(DEBUG))
@@ -63,6 +65,7 @@ def error(d=None):
             print("错误信息已存储至",filename)
 
 def bilipack(t,da):
+    """返回要发送的数据包\nt: 数据包类型\nda: 数据包内容"""
     global sequence
     d=str(da).encode()
     db=b""
@@ -75,25 +78,32 @@ def bilipack(t,da):
     return db
 
 def joinroom(id,k):
+    """返回加入直播间数据包\n连接后要立即发送\nid: 直播间id\nk: 令牌"""
     return bilipack(7,json.dumps({"roomid":id,"key":k},separators=(",",":")))
 
 def hp():
+    """返回心跳包"""
     return bilipack(2,"")
 
 async def hps(ws):
-    while not ws.closed:
-        await ws.send(hp())
-        await asyncio.sleep(30)
+    """每过30秒发送心跳包"""
+    try:
+        while not ws.closed:
+            await ws.send(hp())
+            await asyncio.sleep(30)
+    except KeyboardInterrupt:
+        pass
+    except Exception:
+        error()
 
 def fahp(data):
-    num=0
+    """合并(用于处理人气值)"""
     if not isinstance(data,bytes):
-        raise TypeError("bytes")
-    for i in data:
-        num+=i
-    return num
+        raise TypeError("variable 'data' instance not bytes")
+    return int.from_bytes(data,"big")
 
 def femsgd(msg):
+    """分割数据包"""
     data=msg.split(b"\0\x10\0\0\0\0\0\x05\0\0\0\0")[1:]
     packlist=[]
     for item in data:
@@ -104,6 +114,7 @@ def femsgd(msg):
     return packlist
 
 def savepack(d):
+    # 保存数据包
     dn="bili_live_ws_pack"
     fn=f"{dn}/{int(time.time())}.json"
     if not os.path.isdir(dn):
@@ -112,6 +123,7 @@ def savepack(d):
         f.write(json.dumps(d,ensure_ascii=False,indent="\t",sort_keys=False))
 
 def pac(pack,o):
+    # 匹配cmd,处理内容
     match pack["cmd"]:
         case "DANMU_MSG":# 弹幕
             l_danmu_msg(pack["info"])
@@ -124,7 +136,7 @@ def pac(pack,o):
         case "SEND_GIFT":# 礼物
             if not o.no_send_gift:
                 l_send_gift(pack["data"])
-        case "COMBO_SEND":
+        case "COMBO_SEND":# 组合礼物(推测)
             if not o.no_combo_send:
                 l_combo_send(pack["data"])
         case "WATCHED_CHANGE":# 看过
@@ -180,7 +192,7 @@ def pac(pack,o):
         case "NOTICE_MSG":# 公告
             if not o.no_notice_msg:
                 l_notice_msg(pack)
-        case "GUARD_BUY":
+        case "GUARD_BUY":# 舰队购买
             if not o.no_guard_buy:
                 l_guard_buy(pack["data"])
         case "USER_TOAST_MSG":
@@ -205,6 +217,8 @@ def pac(pack,o):
                 savepack(pack)
 
 def pacs(packlist,o):
+    # 将数据包列表遍历发送给pac处理
+    # 记录出现异常的数据包
     for pack in packlist:
         try:
             pac(pack,o)
@@ -213,6 +227,7 @@ def pacs(packlist,o):
             sys.exit("数据错误")
 
 async def bililivemsg(url,roomid,o,token):
+    """使用提供的参数连接直播间"""
     global hpst
     if DEBUG:
         print("连接服务器…")
@@ -220,10 +235,10 @@ async def bililivemsg(url,roomid,o,token):
         if DEBUG:
             print("服务器已连接")
         await ws.send(joinroom(roomid,token))
-        hpst=asyncio.create_task(hps(ws))
+        hpst=asyncio.create_task(hps(ws),name="重复发送心跳包")
         async for msg in ws:
             if msg[7]==1 and msg[11]==3:
-                print("[人气]",fahp(msg[16:20]))
+                print("[人气]",fahp(msg[16:20]),msg[16:20]if DEBUG else"")
             elif msg[7]==1 and msg[11]==8:
                 print("[认证]",msg[16:])
             elif msg[7]==0:
@@ -238,12 +253,13 @@ async def bililivemsg(url,roomid,o,token):
                     print(msg)
 
 def main(roomid,o):
+    """程序入口(未命名)"""
     if DEBUG:
         print("获取直播信息流地址…")
     try:
         r=requests.get("https://api.live.bilibili.com/xlive/web-room/v1/index/getDanmuInfo?id="+str(roomid))
     except:
-        print(sys.exc_info()[1])
+        print("获取信息流地址失败:",sys.exc_info()[1])
         error()
         if DEBUG:
             raise
@@ -271,6 +287,7 @@ def main(roomid,o):
             sys.exit(1)
 
 def shielding_words(f):
+    """屏蔽词"""
     print("解析屏蔽词…")
     t=None
     try:
@@ -290,6 +307,7 @@ def shielding_words(f):
             print(swd)
 
 def blocking_rules(f):
+    """屏蔽规则"""
     print("解析屏蔽规则…")
     t=None
     try:
@@ -389,8 +407,10 @@ def l_popularity_red_pocket_start(d):
         print("[屏蔽]","屏蔽词增加:",d["danmu"])
 # 命令处理调用处(结束)
 
-if __name__=="__main__":
+def pararg():
     import argparse
+    global DEBUG
+    global runoptions
     desc="哔哩哔哩直播信息流处理\n允许使用@来引入参数文件"
     parser=argparse.ArgumentParser(usage="%(prog)s [options] roomid",description=desc,formatter_class=argparse.RawDescriptionHelpFormatter,fromfile_prefix_chars="@")
     parser.add_argument("roomid",help="直播间ID",type=int,default=23058)
@@ -411,7 +431,7 @@ if __name__=="__main__":
     parser.add_argument("--no-common-notice-danmaku",help="关闭普通通知信息",action="store_true")
     parser.add_argument("--no-notice-msg",help="关闭公告信息",action="store_true")
     parser.add_argument("--no-guard-buy",help="关闭购买舰队信息",action="store_true")
-    parser.add_argument("--no-user-toast-msg",help="关闭USER_TOAST_MSG信息",action="store_true")
+    parser.add_argument("--no-user-toast-msg",help="关闭续费舰队信息",action="store_true")
     parser.add_argument("--no-widget-banner",help="关闭小部件信息",action="store_true")
     parser.add_argument("--no-enter-room",help="关闭进入直播间信息",action="store_true")
     parser.add_argument("--no-popularity-red-pocket-new",help="关闭POPULARITY_RED_POCKET_NEW信息",action="store_true")
@@ -419,11 +439,15 @@ if __name__=="__main__":
     parser.add_argument("-B","--blocking-rules",help="屏蔽规则",type=argparse.FileType("rt"),metavar="FILE")
     parser.add_argument("-u","--save-unknow-datapack",help="保存未知的数据包",action="store_true")
     args=parser.parse_args()
-    DEBUG=args.debug
+    runoptions=args
+    DEBUG=DEBUG or args.debug
+    return args
+
+if __name__=="__main__":
+    args=pararg()
     print("哔哩哔哩直播信息流")
     if DEBUG:
         print("命令行选项: ",args)
-    runoptions=args
     roomid=args.roomid
     print("直播间ID:",roomid)
     if args.shielding_words:

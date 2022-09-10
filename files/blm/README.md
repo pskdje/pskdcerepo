@@ -34,6 +34,10 @@ python bili_live_ws.py -h
 
 **非BUG相关请开讨论！**
 
+### [bili_live_msg.py]
+
+在 bili_live_ws.py 的基础上增加了信息获取。
+
 ### [default_args.txt]
 
 ~~默认命令行参数~~
