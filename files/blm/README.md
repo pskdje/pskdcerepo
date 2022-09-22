@@ -12,6 +12,8 @@
 
 使用的编程语言: [Python](https://www.python.org/)
 
+**不能保证已存在的信息能及时更新**
+
 ## 文件
 
 ### [bili_live_ws.py]
@@ -38,6 +40,10 @@ python bili_live_ws.py -h
 
 在 bili_live_ws.py 的基础上增加了信息获取。
 
+> 需要依赖: `requests`
+> **bili_live_ws.py 要在同一个目录下**
+> 还要保证 bili_live_ws.py 的依赖有处理好
+
 ### [default_args.txt]
 
 ~~默认命令行参数~~
@@ -49,6 +55,10 @@ python bili_live_ws.py -h
 ### [msg_args.txt]
 
 只显示弹幕或留言(理论上是这样)
+
+### [my_args.txt]
+
+给我自己使用的命令行参数
 
 ### [bili live msg.py]
 

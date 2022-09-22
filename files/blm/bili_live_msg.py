@@ -1,5 +1,10 @@
 #!/usr/bin/env python
-"""未完成
+"""哔哩哔哩直播信息流
+直接使用bili_live_ws的功能
+在该基础上增加一些功能
+使用的第三方库: requests
+还需注意bili_live_ws使用的第三方库
+可以尝试给予本文件执行权限来直接运行
 """
 
 import time
@@ -54,8 +59,6 @@ def main():
         lis=ri["live_status"]
         if lis==0:
             print("未开播")
-            print("当前直播间未直播，将自动退出。")
-            exit(0)
         elif lis==1:
             print("直播中")
         elif lis==2:
@@ -76,6 +79,9 @@ def main():
         print("开始时间:",ru["live_time"])
         print("观看人数:",ru["online"])
         print("标签:",ru["tags"])
+        if ru["live_status"]==0:
+            print("当前直播间未直播，将自动退出。")
+            exit(0)
         # live
         print("载入数据…")
         if o.shielding_words:

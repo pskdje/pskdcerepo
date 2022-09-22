@@ -1,7 +1,8 @@
 """哔哩哔哩直播信息流
 使用的第三方库: requests , websockets
 数据包参考自: https://github.com/SocialSisterYi/bilibili-API-collect/blob/master/live/message_stream.md
-数据分析由我自己进行(日期:2022/08/20，请注意时效)
+数据分析由我自己进行(日期:2022/09/22，请注意时效)
+已存在的cmd很难确认是否需要更新
 本文件计划只实现基本功能
 """
 
@@ -49,6 +50,7 @@ def error(d=None):
             f.write("\n\tlen(swd)="+str(len(swd)))
             f.write("\n\tlen(brs)="+str(len(brs)))
             f.write("\n异常信息:\n")
+            f.write("str(exception)=\""+str(sys.exc_info()[1])+"\"\n")
             traceback.print_exc(file=f)
             f.flush()
             if d!=None:
@@ -113,6 +115,10 @@ def femsgd(msg):
             packlist.append(json.loads(item))
     return packlist
 
+class SavePack(Exception):
+    """保存数据包"""
+    pass
+
 def savepack(d):
     # 保存数据包
     dn="bili_live_ws_pack"
@@ -155,9 +161,9 @@ def pac(pack,o):
         case "ROOM_CHANGE":# 直播间更新(推测)
             print("[直播]","分区:",pack["data"]["parent_area_name"],">",pack["data"]["area_name"],",标题:",pack["data"]["title"])
         case "LIVE":# 开始直播(推测)
-            print("[直播]",pack["roomid"],"开始直播")
+            print("[直播]","直播间",pack["roomid"],"开始直播")
         case "PREPARING":# 结束直播(推测)
-            print("[直播]",pack["roomid"],"结束直播")
+            print("[直播]","直播间",pack["roomid"],"结束直播")
         case "ROOM_REAL_TIME_MESSAGE_UPDATE":# 数据更新
             l_room_real_time_message_update(pack["data"])
         case "STOP_LIVE_ROOM_LIST":# 停止直播的房间列表(推测)
@@ -172,10 +178,16 @@ def pac(pack,o):
             pass
         case "ONLINE_RANK_COUNT":# (确认)
             if not o.no_online_rank_count:
-                print("[信息]","高能用户计数:",pack["data"]["count"])
+                print("[计数]","高能用户计数:",pack["data"]["count"])
+        case "VOICE_JOIN_LIST":
+            l_voice_join_list(pack["data"])
+        case "VOICE_JOIN_ROOM_COUNT_INFO":
+            l_voice_join_list(pack["data"])
         case "ONLINE_RANK_TOP3":# 前三个第一次成为高能用户
             if not o.no_online_rank_top3:
                 l_online_rank_top3(pack["data"])
+        case "VOICE_JOIN_STATUS":
+            l_voice_join_status(pack["data"])
         case "ONLINE_RANK_V2":
             if not o.no_online_rank_v2:
                 l_online_rank_v2(pack["data"],o.no_print_enable)
@@ -210,6 +222,12 @@ def pac(pack,o):
                 l_popularity_red_pocket_new(pack["data"])
         case "POPULARITY_RED_POCKET_START":# 增加屏蔽词(才怪)
             l_popularity_red_pocket_start(pack["data"])
+        case "LIKE_INFO_V3_UPDATE":
+            if not o.no_like_info_update:
+                print("[计数]","点赞点击数量:",pack["data"]["click_count"])
+        case "LIKE_INFO_V3_CLICK":# 点赞点击(推测)
+            if not o.no_interact_word:# 使用屏蔽交换信息
+                l_like_info_v3_click(pack["data"])
         case _:# 未知命令
             if not o.no_print_enable:
                 print(f"[支持] 不支持'{pack['cmd']}'命令")
@@ -222,6 +240,9 @@ def pacs(packlist,o):
     for pack in packlist:
         try:
             pac(pack,o)
+        except SavePack:
+            if DEBUG or o.save_unknow_datapack:
+                savepack(pack)
         except:
             error("出现异常的数据包:\n"+json.dumps(pack,ensure_ascii=False,indent="\t"))
             sys.exit("数据错误")
@@ -289,15 +310,13 @@ def main(roomid,o):
 def shielding_words(f):
     """屏蔽词"""
     print("解析屏蔽词…")
-    t=None
     try:
-        t=f.readline().rstrip("\r\n")
-        while t!="":
-            if t[0]=="#":
-                t=f.readline().rstrip("\r\n")
-                continue
-            swd.append(t)
-            t=f.readline().rstrip("\r\n")
+        for l in f:
+            t=l.rstrip("\r\n")
+            if t:
+                if t[0]=="#":
+                    continue
+                swd.append(t)
     except:
         print("处理屏蔽词时出现错误",file=sys.stderr)
         error()
@@ -309,15 +328,13 @@ def shielding_words(f):
 def blocking_rules(f):
     """屏蔽规则"""
     print("解析屏蔽规则…")
-    t=None
     try:
-        t=f.readline().rstrip("\r\n")
-        while t!="":
-            if t[0]=="#":
-                t=f.readline().rstrip("\r\n")
-                continue
-            brs.append(re.compile(t))
-            t=f.readline().rstrip("\r\n")
+        for l in f:
+            t=l.rstrip("\r\n")
+            if t:
+                if t[0]=="#":
+                    continue
+                brs.append(re.compile(t))
     except:
         print("处理屏蔽规则时出现错误",file=sys.stderr)
         error()
@@ -346,6 +363,7 @@ def l_interact_word(d,o):
     else:
         if not o.no_print_enable:
             print("[支持]","未知的交互类型:",d["msg_type"])
+        raise SavePack("未知的交换类型")
 def l_entry_effect(d):
     print("[进场]",d["copy_writing"])
 def l_send_gift(d):
@@ -367,17 +385,27 @@ def l_stop_live_room_list(d):
     print("[直播]","停止直播的房间列表:",f"len({len(d['room_id_list'])})")
 def l_hot_rank_changed(d):
     print("[排行]",d["area_name"],"第",d["rank"],"名")
+def l_voice_join_list(d):
+    print("[连麦]","申请计数:",d["apply_count"])
 def l_online_rank_top3(d):
     if __debug__:
         print("[排行]",d["list"][0]["msg"],f"rank:{d['list'][0]['rank']}")
     else:
         print("[排行]",f"len({len(d['list'])})",d["list"][0]["msg"],f"rank:{d['list'][0]['rank']}")
+def l_voice_join_status(d):
+    if d["status"]==0:
+        print("[连麦]","停止连麦")
+    elif d["status"]==1:
+        print("[连麦]","正在与",d["user_name"],"连麦")
+    else:
+        raise SavePack("未知状态")
 def l_online_rank_v2(d,npe):
     if d["rank_type"]=="gold-rank":
         print("[排行]","高能用户部分列表:",f"len({len(d['list'])})")
     else:
         if not npe:
             print("[支持]","未知的排行类型:",d["rank_type"])
+        raise SavePack("未知的排行类型")
 def l_hot_rank_settlement(d):
     print("[排行]",d["dm_msg"])
 def l_common_notice_danmaku(d):
@@ -405,6 +433,8 @@ def l_popularity_red_pocket_start(d):
     if d["danmu"]not in swd:
         swd.append(d["danmu"])
         print("[屏蔽]","屏蔽词增加:",d["danmu"])
+def l_like_info_v3_click(d):
+    print("[交互]",d["uname"],d["like_text"])
 # 命令处理调用处(结束)
 
 def pararg():
@@ -416,6 +446,7 @@ def pararg():
     parser.add_argument("roomid",help="直播间ID",type=int,default=23058)
     parser.add_argument("-d","--debug",help="开启调试模式",action="store_true")
     parser.add_argument("--no-print-enable",help="不打印不支持的信息",action="store_true")
+    # 关闭一个或多个cmd显示
     parser.add_argument("--no-interact-word",help="关闭直播间交互信息",action="store_true")
     parser.add_argument("--no-entry-effect",help="关闭进场信息",action="store_true")
     parser.add_argument("--no-send-gift",help="关闭礼物信息",action="store_true")
@@ -435,6 +466,8 @@ def pararg():
     parser.add_argument("--no-widget-banner",help="关闭小部件信息",action="store_true")
     parser.add_argument("--no-enter-room",help="关闭进入直播间信息",action="store_true")
     parser.add_argument("--no-popularity-red-pocket-new",help="关闭POPULARITY_RED_POCKET_NEW信息",action="store_true")
+    parser.add_argument("--no-like-info-update",help="关闭点赞计数信息",action="store_true")
+    # 附加功能
     parser.add_argument("-S","--shielding-words",help="屏蔽词(完全匹配)",type=argparse.FileType("rt"),metavar="FILE")
     parser.add_argument("-B","--blocking-rules",help="屏蔽规则",type=argparse.FileType("rt"),metavar="FILE")
     parser.add_argument("-u","--save-unknow-datapack",help="保存未知的数据包",action="store_true")

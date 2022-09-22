@@ -9,3 +9,4 @@
 --no-notice-msg
 --no-guard-buy
 --no-widget-banner
+--no-like-info-update

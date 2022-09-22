@@ -12,6 +12,7 @@ cmdl=(
     "COMBO_SEND",# 组合礼物
     "SUPER_CHAT_MESSAGE",# 醒目留言
     "SUPER_CHAT_MESSAGE_JPN",# 醒目留言(日本)
+    "SUPER_CHAT_MESSAGE_DELETE",# 醒目留言删除
     "LIVE_INTERACTIVE_GAME",
     "ONLINE_RANK_COUNT",
     "STOP_LIVE_ROOM_LIST",# 停止直播房间列表
@@ -29,6 +30,8 @@ cmdl=(
     "USER_TOAST_MSG",
     "HOT_ROOM_NOTIFY",
     "DANMU_AGGREGATION",
+    "POPULARITY_RED_POCKET_NEW",
+    "POPULARITY_RED_POCKET_START",
 )
 fl=os.listdir("bili live msg data")
 for i in fl:

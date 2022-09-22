@@ -39,7 +39,7 @@ def setdata(t:int,data:str):
 def joinroom(roomid:int,token:str):
     """加入直播间\n
 需要提供正确的roomid才可正确获取信息(例:3号直播间需要输入23058而不是3)可使用 http://api.live.bilibili.com/room/v1/Room/room_init 接口获取真实信息
-    """# key可选，不移除纯属懒得删除相关变量
+    """
     return setdata(7,json.dumps({"roomid":roomid,"key":token},separators=(",",":")))
 
 def hp():# 返回需要发送的心跳包
@@ -68,10 +68,7 @@ def fetchmsgdata(msg:bytes):# 获取并返回解析后的普通包列表
     return packlist
 
 def fatchhpmsg(data:bytes):# 获取并返回解析后的心跳包内容(人气值)
-    num=0
-    for i in data:
-        num+=i
-    return num
+    return int.from_bytes(data,"big")
 
 def save(obj):
     global fi
@@ -91,7 +88,7 @@ async def live(roomid:int,url:str,token:str):
     global hpst
     async with websockets.connect(url,logger=LoggerAdapter(wslog,{"websocket":""}))as ws:
         await ws.send(joinroom(roomid,token))
-        hpst=asyncio.create_task(hps(ws))
+        hpst=asyncio.create_task(hps(ws),name="循环发送心跳包")
         async for msg in ws:
             #print("<",msg)
             if msg[7]==1 and msg[11]==3:# 心跳包
@@ -114,3 +111,9 @@ if __name__=="__main__":
         main(roomid)
     except KeyboardInterrupt:
         pass
+    except Exception as e:
+        # 当处于调试模式时再次抛出异常
+        if __debug__:
+            print(e)
+        else:
+            raise
