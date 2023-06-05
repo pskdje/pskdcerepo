@@ -16,6 +16,7 @@ import traceback
 import requests
 import asyncio
 import websockets
+from pathlib import Path
 
 if not(sys.version_info[0]==3 and sys.version_info[1]>=10):
     print("Python 版本需要大于等于3.10")
@@ -33,12 +34,12 @@ brs=[]
 
 def error(d=None):
     # 错误记录
-    dirname="bili_live_ws_err"
-    filename=f"{dirname}/{int(time.time())}.txt"
-    if not os.path.isdir(dirname):
-        os.mkdir(dirname)
+    dirpath=Path("bili_live_ws_err")
+    filepath=dirpath/f"{int(time.time())}.txt"
+    if not dirpath.is_dir():
+        dirpath.mkdir()
     try:
-        with open(filename,"w")as f:
+        with open(filepath,"w")as f:
             f.write("哔哩哔哩直播信息流\n时间:")
             f.write(time.strftime("%Y/%m/%d-%H:%M:%S%z"))
             f.write("\n是否为执行入口: "+str(__name__=="__main__"))
@@ -64,7 +65,7 @@ def error(d=None):
         traceback.print_exc()
     else:
         if DEBUG:
-            print("错误信息已存储至",filename)
+            print("错误信息已存储至",str(filepath))
 
 def bilipack(t,da):
     """返回要发送的数据包\nt: 数据包类型\nda: 数据包内容"""
@@ -121,11 +122,11 @@ class SavePack(Exception):
 
 def savepack(d):
     # 保存数据包
-    dn="bili_live_ws_pack"
-    fn=f"{dn}/{int(time.time())}.json"
-    if not os.path.isdir(dn):
-        os.mkdir(dn)
-    with open(fn,"w")as f:
+    dp=Path("bili_live_ws_pack")
+    fp=dp/f"{int(time.time())}.json"
+    if not dp.is_dir():
+        dp.mkdir()
+    with open(fp,"w")as f:
         f.write(json.dumps(d,ensure_ascii=False,indent="\t",sort_keys=False))
 
 def pac(pack,o):
@@ -213,6 +214,9 @@ def pac(pack,o):
         case "WIDGET_BANNER":# 小部件
             if not o.no_widget_banner:
                 l_widget_banner(pack["data"])
+        case "SUPER_CHAT_ENTRANCE":
+            if not o.no_super_chat_entrance:
+                l_super_chat_entrance(pack["data"])
         case "ROOM_SKIN_MSG":# 直播间皮肤更新
             l_room_skin_msg(pack)
         case "LIVE_MULTI_VIEW_CHANGE":
@@ -226,7 +230,7 @@ def pac(pack,o):
             if not o.no_like_info_update:
                 print("[计数]","点赞点击数量:",pack["data"]["click_count"])
         case "LIKE_INFO_V3_CLICK":# 点赞点击(推测)
-            if not o.no_interact_word:# 使用屏蔽交换信息
+            if not o.no_interact_word:# 使用屏蔽交互信息的选项
                 l_like_info_v3_click(pack["data"])
         case _:# 未知命令
             if not o.no_print_enable:
@@ -245,7 +249,9 @@ def pacs(packlist,o):
                 savepack(pack)
         except:
             error("出现异常的数据包:\n"+json.dumps(pack,ensure_ascii=False,indent="\t"))
-            sys.exit("数据错误")
+            print("数据错误",file=sys.stderr)
+            if o.pack_error_no_exit:
+                sys.exit(1)
 
 async def bililivemsg(url,roomid,o,token):
     """使用提供的参数连接直播间"""
@@ -425,6 +431,13 @@ def l_widget_banner(d):
         if d["widget_list"][wi]==None:
             continue
         print("[小部件]",f"key:{wi}","id",d["widget_list"][wi]["id"],"标题:",d["widget_list"][wi]["title"])
+def l_super_chat_entrance(d):
+    if d["status"]==0:
+        print("[信息]","关闭醒目留言入口")
+    else:
+        print("[支持]","未知的'SUPER_CHAT_ENTRANCE'status数字:",d["status"])
+        print("为以防忽略，暂不提供屏蔽该不支持信息")
+        raise SavePack("未知的status")
 def l_room_skin_msg(d):
     print("[信息]","直播间皮肤更新","id:",d["skin_id"],",status:",d["status"],",结束时间:",time.strftime(TIMEFORMAT,time.gmtime(d["end_time"])),",当前时间:",time.strftime(TIMEFORMAT,time.gmtime(d["current_time"])),sep=" ")
 def l_popularity_red_pocket_new(d):
@@ -446,27 +459,30 @@ def pararg():
     parser.add_argument("roomid",help="直播间ID",type=int,default=23058)
     parser.add_argument("-d","--debug",help="开启调试模式",action="store_true")
     parser.add_argument("--no-print-enable",help="不打印不支持的信息",action="store_true")
+    parser.add_argument("--pack-error-no-exit",help="数据包处理异常时不退出",action="store_false")
     # 关闭一个或多个cmd显示
-    parser.add_argument("--no-interact-word",help="关闭直播间交互信息",action="store_true")
-    parser.add_argument("--no-entry-effect",help="关闭进场信息",action="store_true")
-    parser.add_argument("--no-send-gift",help="关闭礼物信息",action="store_true")
-    parser.add_argument("--no-combo-send",help="关闭组合礼物信息",action="store_true")
-    parser.add_argument("--no-watched-change",help="关闭看过信息",action="store_true")
-    parser.add_argument("--no-super-chat-message",help="关闭醒目留言信息",action="store_true")
-    parser.add_argument("--no-stop-live-room-list",help="关闭停止直播的房间列表信息",action="store_true")
-    parser.add_argument("--no-hot-rank-changed",help="关闭当前直播间的排行信息",action="store_true")
-    parser.add_argument("--no-online-rank-count",help="关闭高能用户计数信息",action="store_true")
-    parser.add_argument("--no-online-rank-top3",help="关闭前三个第一次成为高能用户信息",action="store_true")
-    parser.add_argument("--no-online-rank-v2",help="关闭ONLINE_RANK_V2信息",action="store_true")
-    parser.add_argument("--no-hot-rank-settlement",help="关闭热门通知信息",action="store_true")
-    parser.add_argument("--no-common-notice-danmaku",help="关闭普通通知信息",action="store_true")
-    parser.add_argument("--no-notice-msg",help="关闭公告信息",action="store_true")
-    parser.add_argument("--no-guard-buy",help="关闭购买舰队信息",action="store_true")
-    parser.add_argument("--no-user-toast-msg",help="关闭续费舰队信息",action="store_true")
-    parser.add_argument("--no-widget-banner",help="关闭小部件信息",action="store_true")
-    parser.add_argument("--no-enter-room",help="关闭进入直播间信息",action="store_true")
-    parser.add_argument("--no-popularity-red-pocket-new",help="关闭POPULARITY_RED_POCKET_NEW信息",action="store_true")
-    parser.add_argument("--no-like-info-update",help="关闭点赞计数信息",action="store_true")
+    cmd=parser.add_argument_group("关闭某个cmd的显示")
+    cmd.add_argument("--no-interact-word",help="关闭直播间交互信息",action="store_true")
+    cmd.add_argument("--no-entry-effect",help="关闭进场信息",action="store_true")
+    cmd.add_argument("--no-send-gift",help="关闭礼物信息",action="store_true")
+    cmd.add_argument("--no-combo-send",help="关闭组合礼物信息",action="store_true")
+    cmd.add_argument("--no-watched-change",help="关闭看过信息",action="store_true")
+    cmd.add_argument("--no-super-chat-message",help="关闭醒目留言信息",action="store_true")
+    cmd.add_argument("--no-stop-live-room-list",help="关闭停止直播的房间列表信息",action="store_true")
+    cmd.add_argument("--no-hot-rank-changed",help="关闭当前直播间的排行信息",action="store_true")
+    cmd.add_argument("--no-online-rank-count",help="关闭高能用户计数信息",action="store_true")
+    cmd.add_argument("--no-online-rank-top3",help="关闭前三个第一次成为高能用户信息",action="store_true")
+    cmd.add_argument("--no-online-rank-v2",help="关闭ONLINE_RANK_V2信息",action="store_true")
+    cmd.add_argument("--no-hot-rank-settlement",help="关闭热门通知信息",action="store_true")
+    cmd.add_argument("--no-common-notice-danmaku",help="关闭普通通知信息",action="store_true")
+    cmd.add_argument("--no-notice-msg",help="关闭公告信息",action="store_true")
+    cmd.add_argument("--no-guard-buy",help="关闭购买舰队信息",action="store_true")
+    cmd.add_argument("--no-user-toast-msg",help="关闭续费舰队信息",action="store_true")
+    cmd.add_argument("--no-widget-banner",help="关闭小部件信息",action="store_true")
+    cmd.add_argument("--no-super-chat-entrance",help="关醒目留言入口信息",action="store_true")
+    cmd.add_argument("--no-enter-room",help="关闭进入直播间信息",action="store_true")
+    cmd.add_argument("--no-popularity-red-pocket-new",help="关闭POPULARITY_RED_POCKET_NEW信息",action="store_true")
+    cmd.add_argument("--no-like-info-update",help="关闭点赞计数信息",action="store_true")
     # 附加功能
     parser.add_argument("-S","--shielding-words",help="屏蔽词(完全匹配)",type=argparse.FileType("rt"),metavar="FILE")
     parser.add_argument("-B","--blocking-rules",help="屏蔽规则",type=argparse.FileType("rt"),metavar="FILE")

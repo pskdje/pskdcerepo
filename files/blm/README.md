@@ -40,8 +40,8 @@ python bili_live_ws.py -h
 
 在 bili_live_ws.py 的基础上增加了信息获取。
 
-> 需要依赖: `requests`
-> **bili_live_ws.py 要在同一个目录下**
+> 需要依赖: `requests` 
+> **bili_live_ws.py 要在同一个目录下** 
 > 还要保证 bili_live_ws.py 的依赖有处理好
 
 ### [default_args.txt]
