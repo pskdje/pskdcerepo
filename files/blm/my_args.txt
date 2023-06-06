@@ -12,3 +12,4 @@
 --no-enter-room
 --no-popularity-red-pocket-new
 --save-unknow-datapack
+--pack-error-no-exit
