@@ -16,39 +16,53 @@ ua="Mozilla/5.0 (X11; Linux x86_64; rv:100.0) Gecko/20100101 Firefox/100.0"
 
 def get_room_init(roomid:int)->dict:
     try:
-        r=requests.get("https://api.live.bilibili.com/room/v1/Room/room_init?id="+str(roomid),headers={"User-Agent":ua})
-    except:
+        r=requests.get(
+            "https://api.live.bilibili.com/room/v1/Room/room_init?id="+str(roomid),
+            headers={"User-Agent":ua}
+        )
+    except Exception:
         blw.error()
         exit("获取房间初始化信息失败")
     if r.status_code!=200:
         print(r.text)
+        blw.save_http_error(r,"状态码")
         exit("服务器错误")
     d=r.json()
     if d["code"]==60004:
         print("直播间不存在")
         exit(0)
-    assert d["code"]==0,"room_init code not 0"
+    if d["code"]!=0:
+        print("room_init接口返回的code不为0")
+        print(d["code"],"-",d["message"])
+        blw.save_http_error(r,"键code")
+        exit(1)
     return d["data"]
 
 def get_room_info(mid:int)->dict:
     try:
-        r=requests.get("https://api.live.bilibili.com/room/v1/Room/get_info?room_id="+str(mid),headers={"User-Agent":ua})
-    except:
+        r=requests.get(
+            "https://api.live.bilibili.com/room/v1/Room/get_info?room_id="+str(mid),
+            headers={"User-Agent":ua}
+        )
+    except Exception:
         blw.error()
         exit("获取直播间信息失败")
     if r.status_code!=200:
         print(r.text)
+        save_http_error(r,"状态码")
         exit("服务器错误")
     d=r.json()
     if d["code"]!=0:
-        print(d["code"],d["message"])
+        print("room_info获取到的code不为0")
+        print(d["code"],"-",d["message"])
+        save_http_error(r,"键code")
         exit(1)
     return d["data"]
 
 def main():
     try:
         o=blw.pararg()
-        if not __debug__:
+        if blw.DEBUG:
             print("命令行参数:",o)
         print("获取数据…")
         ri=get_room_init(o.roomid)
@@ -74,6 +88,7 @@ def main():
         print("标题:",ru["title"])
         print("封面:",ru["user_cover"])
         print("背景图:",ru["background"])
+        print("关键帧:",ru["keyframe"])
         print("《简介》:`",ru["description"],"`")
         print("分区:",ru["parent_area_name"],">",ru["area_name"])
         print("开始时间:",ru["live_time"])
@@ -102,4 +117,7 @@ if __name__=="__main__":
         main()
     except KeyboardInterrupt:
         print("关闭")
+        if blw.DEBUG:
+            print("被测试的cmd计数:")
+            blw.print_test_pack_count()
         exit(0)

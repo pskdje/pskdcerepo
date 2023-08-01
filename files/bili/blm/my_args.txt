@@ -1,3 +1,5 @@
+--save-unknow-datapack
+--pack-error-no-exit
 --no-entry-effect
 --no-send-gift
 --no-combo-send
@@ -11,5 +13,3 @@
 --no-widget-banner
 --no-enter-room
 --no-popularity-red-pocket-new
---save-unknow-datapack
---pack-error-no-exit

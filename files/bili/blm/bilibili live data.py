@@ -2,6 +2,7 @@
 
 import os
 import json
+import pathlib
 
 cmdl=(
     "INTERACT_WORD",# 活动
@@ -33,9 +34,9 @@ cmdl=(
     "POPULARITY_RED_POCKET_NEW",
     "POPULARITY_RED_POCKET_START",
 )
-fl=os.listdir("bili live msg data")
+fl=pathlib.Path("bili live msg data").iterdir()
 for i in fl:
-    with open("bili live msg data/"+i)as f:
+    with i.open()as f:
         try:
             l=json.load(f)
         except:

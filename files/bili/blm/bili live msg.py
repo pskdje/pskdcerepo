@@ -3,6 +3,7 @@
 import sys
 import os
 import json
+import pathlib
 import logging
 import requests
 import asyncio
@@ -72,10 +73,10 @@ def fatchhpmsg(data:bytes):# 获取并返回解析后的心跳包内容(人气�
 
 def save(obj):
     global fi
-    fpa="bili live msg data"
+    fpa=pathlib.Path("bili live msg data")
     if not os.path.exists(fpa):
         os.mkdir(fpa)
-    with open(fpa+"/"+str(fi)+".json","w",encoding="utf-8")as f:
+    with open(fpa/(str(fi)+".json"),"w",encoding="utf-8")as f:
         f.write(json.dumps(obj,ensure_ascii=False,indent="\t",sort_keys=False))
     fi+=1
 
