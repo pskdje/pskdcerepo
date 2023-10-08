@@ -1,0 +1,5 @@
+__pycache__/
+*.bak
+# blm 调试文件
+/files/bili/blm/bili live msg data
+/files/bili/blm/bili_live_ws_*

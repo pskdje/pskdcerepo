@@ -24,9 +24,17 @@
 
 > 需要依赖: `requests` , `websockets`
 
+> 可选依赖: `brotli`
+
 具体的选项请输入 `-h` 或 `--help` 来查看帮助
 
 一些异常并未进行捕捉，遇到解释器打印异常时，请不用惊慌，这是正常现象。因为该程序并未考虑用户交互，也不完善。
+
+2023/10/05**增**: 现在需要登录才能获得用户昵称，所以增加了 `--sessdata` 和 `--uid` 参数。
+当 `--sessdata` 存在时必须使用 `--uid` 参数，否则连接将被关闭。
+使用某个UID登录后获取的SESSDATA拿到这里使用时必须正确填写这个UID，否则连接将关闭。
+
+参数 `--sessdata` 支持直接输入SESSDATA和从文件中读取两种方式。
 
 ```shell
 python bili_live_ws.py -h
@@ -41,12 +49,14 @@ python bili_live_ws.py -h
 在 bili_live_ws.py 的基础上增加了信息获取。
 
 > 需要依赖: `requests` 
+
 > **bili_live_ws.py 要在同一个目录下** 
+
 > 还要保证 bili_live_ws.py 的依赖有处理好
 
 ### [default_args.txt]
 
-~~默认命令行参数~~
+~~默认命令行参数~~ ~~(我也不知道这是什么，只是想有一个名称有 default 的文件)~~
 
 ### [bili_args.txt]
 
@@ -62,11 +72,13 @@ python bili_live_ws.py -h
 
 ### [bili live msg.py]
 
-获取信息流
+获取信息流，保存数据包。
 
 仅支持zlib解压缩
 
 自动切割数据包
+
+bili_live_ws.py 就是从这拓展出来的
 
 用法:
 ```shell
@@ -76,7 +88,11 @@ python "bili live msg.py" [roomid]
 
 ### [bilibili live data.py]
 
-找出未知的命令
+从保存的数据包中找出未知的命令。
+
+### [save pack filter.py]
+
+从保存的数据包中筛选出需要的数据。
 
 ## 参考
 

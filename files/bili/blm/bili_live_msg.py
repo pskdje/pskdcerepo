@@ -12,7 +12,7 @@ from sys import exit
 import requests
 import bili_live_ws as blw
 
-ua="Mozilla/5.0 (X11; Linux x86_64; rv:100.0) Gecko/20100101 Firefox/100.0"
+ua=blw.UA
 
 def get_room_init(roomid:int)->dict:
     try:
@@ -104,7 +104,7 @@ def main():
         if o.blocking_rules:
             blw.blocking_rules(o.blocking_rules)
         print("连接直播间…")
-        blw.main(ri["room_id"],o)
+        blw.start(ri["room_id"],o)
     except Exception:
         print("出现错误")
         blw.error()

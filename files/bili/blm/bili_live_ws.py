@@ -1,5 +1,6 @@
 """哔哩哔哩直播信息流
 使用的第三方库: requests , websockets
+可选的第三方库: brotli
 数据包参考自: https://github.com/SocialSisterYi/bilibili-API-collect/blob/master/live/message_stream.md
 数据分析由我自己进行，请注意时效(更新日期:2023/06/30,增加条目)
 已存在的cmd很难确认是否需要更新
@@ -15,11 +16,16 @@ import json
 import re
 import zlib
 import errno
+import logging
 import traceback
 import requests
 import asyncio
 import websockets
 from pathlib import Path
+try:
+    import brotli
+except ImportError:
+    brotli=None
 
 if not(sys.version_info[0]==3 and sys.version_info[1]>=10):
     print("Python 版本需要大于等于3.10",file=sys.stderr)
@@ -29,7 +35,9 @@ if not(sys.version_info[0]==3 and sys.version_info[1]>=10):
 
 DEBUG=not __debug__
 TIMEFORMAT="%Y/%m/%d-%H:%M:%S"
+UA="Mozilla/5.0 (X11; Linux x86_64; rv:100.0) Gecko/20100101 Firefox/100.0"
 starttime=time.time()
+wslog=logging.getLogger("websockets.client")
 cumulative_error_count=0
 runoptions=None
 sequence=0
@@ -37,6 +45,7 @@ hpst=None
 swd=[]
 brs=[]
 test_pack_count={}
+wslog.setLevel(logging.DEBUG)
 
 def error(d=None):
     # 错误记录
@@ -51,6 +60,7 @@ def error(d=None):
             f.write(time.strftime("%Y/%m/%d-%H:%M:%S%z"))
             f.write("\n是否为执行入口: "+str(__name__=="__main__"))
             f.write("\n命令行选项: "+str(runoptions))
+            f.write("\n用户代理常量: "+str(UA))
             f.write("\n启动时间戳: "+str(starttime))
             f.write("\n累计错误数: "+str(cumulative_error_count))
             f.write("\n部分参数:\n")
@@ -92,9 +102,12 @@ def bilipack(t,da):
     sequence+=1
     return db
 
-def joinroom(id,k):
-    """返回加入直播间数据包\n连接后要立即发送\nid: 直播间id\nk: 令牌"""
-    return bilipack(7,json.dumps({"roomid":id,"key":k},separators=(",",":")))
+def joinroom(id,k,uid=0):
+    """返回加入直播间数据包\n连接后要立即发送
+    id: 直播间id\nk: 令牌\nuid: 用户id
+    2023/10/04增: 现在需要登录才能获得用户昵称（这么搞有什么用处？）"""
+    protover=3 if brotli else 2
+    return bilipack(7,json.dumps({"roomid":id,"key":k,"uid":uid,"platform":"web","protover":protover},separators=(",",":")))
 
 def hp():
     """返回心跳包"""
@@ -130,7 +143,8 @@ def femsgd(msg):
             packlist.append(json.loads(item))
     return packlist
 
-def save_http_error(r:"requests响应",t):
+def save_http_error(r:"requests响应",t:str):
+    """保存HTTP错误"""
     header="header:\n"
     for k,v in r.headers.items():
         header+=f"\t{k}: {v}\n"
@@ -152,6 +166,7 @@ def savepack(d):
         f.write(json.dumps(d,ensure_ascii=False,indent="\t",sort_keys=False))
 
 def test_pack_add(c):
+    # 对数据包进行计数(理论上能对任何数据进行计数)
     if c not in test_pack_count:
         test_pack_count[c]=1
     else:
@@ -296,6 +311,8 @@ def pac(pack,o):
         case "GOTO_BUY_FLOW":# 购买推荐(?)
             if not o.no_goto_buy_flow:
                 l_goto_buy_flow(pack["data"])
+        case "LOG_IN_NOTICE":# 登录通知
+            print("[需要登录]",pack["data"]["notice_msg"])
         case(# 不进行支持
             "HOT_ROOM_NOTIFY"|# 未知，内容会在哔哩哔哩直播播放器日志中显示
             "WIDGET_GIFT_STAR_PROCESS"|# 礼物星球(礼物名)
@@ -334,25 +351,41 @@ def pacs(packlist,o):
             if ie:
                 sys.exit(1)
 
-async def bililivemsg(url,roomid,o,token):
+def print_rq(rq):# 打印人气值
+    hp=fahp(rq)
+    txt=str(hp)
+    if DEBUG:
+        txt+=" "+str(rq)
+    if hp==1:
+        txt+=" (未开播或不显示)"
+    print("[人气]",txt)
+
+async def bililivemsg(url,roomid,o,token,uid):
     """使用提供的参数连接直播间"""
     global hpst
     if DEBUG:
         print("连接服务器…")
-    async with websockets.connect(url)as ws:
+    if o.sessdata and not uid:
+        print("提示: 使用了sessdata但未提供uid")
+    async with websockets.connect(url,user_agent_header=UA)as ws:
         if DEBUG:
             print("服务器已连接")
-        await ws.send(joinroom(roomid,token))
+        await ws.send(joinroom(roomid,token,uid))
         hpst=asyncio.create_task(hps(ws),name="重复发送心跳包")
         async for msg in ws:
             if msg[7]==1 and msg[11]==3:
-                print("[人气]",fahp(msg[16:20]),msg[16:20]if DEBUG else"")
+                print_rq(msg[16:20])
             elif msg[7]==1 and msg[11]==8:
                 print("[认证]",msg[16:])
             elif msg[7]==0:
                 pacs(femsgd(msg),o)
             elif msg[7]==2:
                 pacs(femsgd(zlib.decompress(msg[16:])),o)
+            elif msg[7]==3:
+                if brotli:
+                    pacs(femsgd(brotli.decompress(msg[16:])),o)
+                elif o.no_print_enable:
+                    print("[支持] 未安装brotli，无法处理相关数据，请尝试使用其它协议版本。（正常情况下程序会自动切换协议版本，不过由于设备限制，相关代码未测试）")
             else:
                 if o.no_print_enable:
                     continue
@@ -360,12 +393,21 @@ async def bililivemsg(url,roomid,o,token):
                 if DEBUG:
                     print(msg)
 
-def main(roomid,o):
-    """程序入口(未命名)"""
+def start(roomid,o):
+    """程序入口"""
     if DEBUG:
         print("获取直播信息流地址…")
     try:
-        r=requests.get("https://api.live.bilibili.com/xlive/web-room/v1/index/getDanmuInfo?id="+str(roomid))
+        r=requests.get(
+            "https://api.live.bilibili.com/xlive/web-room/v1/index/getDanmuInfo?id="+str(roomid),
+            headers={
+                "Origin":"https://live.bilibili.com/",
+                "User-Agent":UA
+            },
+            cookies={
+                "SESSDATA":o.sessdata
+            }
+        )
     except KeyboardInterrupt:
         print("获取操作被中断")
     except:
@@ -384,8 +426,9 @@ def main(roomid,o):
             save_http_error(r,"获取的code不为0")
             sys.exit(1)
         u=d["data"]["host_list"][0]
+        ws_host=f"{u['host']}:{u['wss_port']}"
         try:
-            asyncio.run(bililivemsg(f"""wss://{u["host"]}:{u["wss_port"]}/sub""",roomid,o,d["data"]["token"]))
+            asyncio.run(bililivemsg(f"wss://{ws_host}/sub",roomid,o,d["data"]["token"],o.uid))
         except websockets.exceptions.ConnectionClosedError as e:
             error()
             print("连接关闭:",e)
@@ -405,10 +448,23 @@ def main(roomid,o):
             print("可以先检查一下网络。大部分异常都由网络问题引起的。")
             sys.exit(1)
         except Exception:
-            error("捕捉函数 bililivemsg 抛出的异常\n"f"WebSocket Server: {u['host']}:{u['wss_port']}"f"\nroomid: {roomid}\ntoken: {d['data']['token']}")
+            error("捕捉函数 bililivemsg 抛出的异常\n"f"WebSocket Server: {ws_host}"f"\nroomid: {roomid}\ntoken: {d['data']['token']}")
             print("出现内部异常，请查看错误记录文件自行排除问题或在你获取本文件的git仓库开一个issue。")
-            print("开issus请检查是否有相同的问题，若有就附加上去。记得附上错误文件。")
+            print("开issus请检查是否有相同的问题，若有就附加上去。记得附上错误文件，也不要忘记检查是否有敏感信息。")
+            print("若使用登录信息，请将错误文件中命令行选项内的sessdata替换为'SESSDATA'字符串，切勿改成None，否则无法确定是否为登录时发生的问题。")
+            print("uid也不要替换为0，随便一个正数。如果uid为0，这边会更偏向于没有正确使用参数导致出现问题。")
             sys.exit(1)
+
+def set_wslog():
+    import logging.handlers
+    rp=Path("bili_live_ws_log")
+    if not rp.is_dir():
+        rp.mkdir()
+    h=logging.handlers.RotatingFileHandler(rp/"ws.log",maxBytes=1024*1024*2,backupCount=6)
+    h.setLevel(logging.DEBUG)
+    h.setFormatter(logging.Formatter("{asctime} {levelname}: {message}",style="{"))
+    wslog.addHandler(h)
+    print("已启用ws记录")
 
 def shielding_words(f):
     """屏蔽词"""
@@ -446,6 +502,7 @@ def blocking_rules(f):
             print(brs)
 
 def print_test_pack_count():
+    # 打印数据包计数
     if len(test_pack_count)==0:
         print("无内容")
     for k,v in test_pack_count.items():
@@ -461,12 +518,13 @@ def l_danmu_msg(d):
     print("[弹幕]",f"{d[2][1]}:",d[1])
 def l_interact_word(d,o):
     info="[交互]"
-    if d["msg_type"]==1:
+    mt=d["msg_type"]
+    if mt==1:
         if not o.no_enter_room:
             print(info,d["uname"],"进入直播间",sep=" ")
-    elif d["msg_type"]==2:
+    elif mt==2:
         print(info,d["uname"],"关注直播间",sep=" ")
-    elif d["msg_type"]==3:
+    elif mt==3:
         print(info,d["uname"],"分享直播间",sep=" ")
     else:
         if not o.no_print_enable:
@@ -515,8 +573,11 @@ def l_voice_join_status(d):
     else:
         raise SavePack("未知状态")
 def l_online_rank_v2(d,npe):
-    if d["rank_type"]=="gold-rank":
-        print("[排行]","高能用户部分列表:",f"len({len(d['list'])})")
+    rt=d["rank_type"]
+    if rt=="gold-rank":
+        print("[排行]","高能用户部分列表(gr):",f"len({len(d['list'])})")
+    elif rt=="online_rank":
+        print("[排行]","高能用户部分列表:",f"len({len(d['online_list'])})")
     else:
         if not npe:
             print("[支持]","未知的排行类型:",d["rank_type"])
@@ -589,10 +650,22 @@ def l_goto_buy_flow(d):
     print("[广告]",d["text"])
 # 命令处理调用处(结束)
 
+def get_SESSDATA(s):# 获取登录会话标识
+    print("警告: 错误记录文件会自动记录命令行参数，其中有SESSDATA数据。")
+    p=Path(s)
+    if p.is_file():
+        if p.stat().st_size>65536:
+            print("[错误] 会话文件过大")
+            raise ValueError("file large")
+        return p.read_text().splitlines()[0].split("\t")[-1]
+    return s
+
 def pararg():
     import argparse
     global DEBUG
     global runoptions
+    if runoptions:
+        raise RuntimeError("检测到已进行过一次命令行参数获取")
     desc="哔哩哔哩直播信息流处理\n允许使用@来引入参数文件"
     parser=argparse.ArgumentParser(usage="%(prog)s [options] roomid",description=desc,formatter_class=argparse.RawDescriptionHelpFormatter,fromfile_prefix_chars="@")
     parser.add_argument("roomid",help="直播间ID",type=int,default=23058)
@@ -600,6 +673,8 @@ def pararg():
     parser.add_argument("--no-print-enable",help="不打印不支持的信息",action="store_true")
     parser.add_argument("-u","--save-unknow-datapack",help="保存未知的数据包",action="store_true")
     parser.add_argument("--pack-error-no-exit",help="数据包处理异常时不退出",action="store_false")
+    parser.add_argument("--sessdata",help="使用登录会话标识",type=get_SESSDATA,metavar="SESSDATA|FILE")
+    parser.add_argument("--uid",help="用户UID，使用SESSDATA时必须",type=int,default=0)
     # 关闭一个或多个cmd显示
     cmd=parser.add_argument_group("关闭某个cmd的显示")
     cmd.add_argument("--no-interact-word",help="关闭直播间交互信息",action="store_true")
@@ -642,11 +717,11 @@ def pararg():
     DEBUG=DEBUG or args.debug
     return args
 
-if __name__=="__main__":
+def main():
     args=pararg()
-    print("哔哩哔哩直播信息流")
     if DEBUG:
         print("命令行选项: ",args)
+        set_wslog()
     roomid=args.roomid
     print("直播间ID:",roomid)
     if args.shielding_words:
@@ -655,10 +730,13 @@ if __name__=="__main__":
         blocking_rules(args.blocking_rules)
     print("连接直播间…")
     try:
-        main(roomid,args)
+        start(roomid,args)
     except KeyboardInterrupt:
         print("关闭连接")
         if DEBUG:
             print("被测试的cmd计数:")
             print_test_pack_count()
         sys.exit(0)
+if __name__=="__main__":
+    print("=[哔哩哔哩直播信息流]=")
+    main()

@@ -148,7 +148,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("-b", "--bind", metavar="ADDRESS",
-                        help="绑定到此地址 (默认值: 所有端口)")
+                        help="绑定到此地址")
     parser.add_argument('-d', '--directory', default=os.getcwd(),
                         help="目录路径 (默认值: 当前路径)")
     parser.add_argument('port', default=8000, type=int, nargs='?',

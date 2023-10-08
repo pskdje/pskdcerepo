@@ -17,6 +17,11 @@
 		color: white;
 	}
 }/* 隐藏作者信息 */
+@media (max-height: 300px){
+	#wa {
+		display: none;
+	}
+}
 body {
 	margin: 0;
 	padding: 0;
@@ -51,6 +56,7 @@ body {
 	</head>
 	<body>
 		<!-- 一个简单的日期时间显示 -->
+		<noscript>no script.</noscript>
 		<main class="zzf">
 			<div id="app">
 				<p id="time">00:00:00</p>
@@ -70,26 +76,12 @@ const id_week=document.getElementById("week");
 const id_lunar_date=document.getElementById("lunar_date");
 const id_chrono=document.getElementById("chrono");
 const id_moment=document.getElementById("moment");
+const ST_cDT=250,ST_cL=1000;// 循环时间常量
+let s_cDT=undefined,s_cL=undefined;
 if((window.parent??window)!==window){
 	id_wa.hidden=true;
 }
-window.onmessage=function(ev){
-	var data=undefined;
-	if(typeof ev.data==="string"){
-		try{data=JSON.parse(ev.data);}catch(e){console.error(e);return;};
-	}else{
-		data=ev.data;
-	};switch(data.command){
-		case undefined:
-			console.warn("command不能为undefined");
-			break;
-		case "hiddenArti":
-			id_wa.hidden=true;
-			console.info("隐藏作者信息");
-			break;
-	}
-}
-setInterval(function(){
+function changeDateTime(){
 	var dt=new Date();// 获取时间
 	var mon=dt.getMonth()+1;// 月
 	var day=dt.getDate();// 日
@@ -124,8 +116,8 @@ setInterval(function(){
 				return "？";
 		}
 	})(dt.getDay());
-},500);
-setInterval(async function(){
+}
+async function changeLunar(){
 	var cal=calendar.solar2lunar();// 获取农历等信息
 	var dt=new Date();// 获取时间
 	var hou=dt.getHours();// 获取时
@@ -186,7 +178,40 @@ setInterval(async function(){
 		if(min>=105&&min<120)return "八";
 		return "？";
 	})(hou%2,dt.getMinutes())+"刻";
-},1000);
+}
+async function startDTL(){// 启动
+	changeDateTime();
+	await changeLunar();
+	s_cDT=setInterval(changeDateTime,ST_cDT);
+	s_cL=setInterval(changeLunar,ST_cL);
+}
+function stopDTL(){// 停止
+	clearInterval(s_cDT);
+	clearInterval(s_cL);
+	s_cDT=s_cL=0;
+}
+window.onmessage=function(ev){
+	var data=undefined;
+	if(typeof ev.data==="string"){
+		try{data=JSON.parse(ev.data);}catch(e){console.error(e);return;};
+	}else{
+		data=ev.data;
+	};switch(data.command){
+		case undefined:
+			console.warn("command不能为undefined");
+			break;
+		case "hiddenArti":
+			id_wa.hidden=true;
+			console.info("隐藏作者信息");
+			break;
+		case "start":
+			startDTL();
+			break;
+		case "stop":
+			stopDTL();
+			break;
+	}
+}
 console.log("本文件作者: pskdje");
 console.log("使用'calendar.js'显示农历");
 console.log("本文件使用 CC0 协议，'calendar.js'文件请查看其使用的协议。");
