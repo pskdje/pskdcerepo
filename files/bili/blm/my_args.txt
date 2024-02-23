@@ -3,6 +3,7 @@
 --no-entry-effect
 --no-send-gift
 --no-combo-send
+--no-live-interactive-game
 --no-stop-live-room-list
 --no-hot-rank-changed
 --no-online-rank-count

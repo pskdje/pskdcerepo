@@ -18,6 +18,7 @@ class LoggerAdapter(logging.LoggerAdapter):
             return msg,kwargs
         return f"{websocket.id} {msg}",kwargs
 
+UA="Mozilla/5.0 (X11; Linux x86_64; rv:100.0) Gecko/20100101 Firefox/100.0"# 用户代理常量
 wslog=logging.getLogger("websockets.client")# 日志
 sequence:int=0
 hpst=None
@@ -49,7 +50,7 @@ def hp():# 返回需要发送的心跳包
 def main(roomid):
     print("直播间id:",roomid)
     try:# 获取信息流的地址
-        r=requests.get("https://api.live.bilibili.com/xlive/web-room/v1/index/getDanmuInfo?id="+str(roomid))
+        r=requests.get("https://api.live.bilibili.com/xlive/web-room/v1/index/getDanmuInfo?id="+str(roomid),headers={"Origin":"https://live.bilibili.com","Referer":"https://live.bilibili.com/"+str(roomid),"User-Agent":UA})
     except:
         raise
     else:
@@ -87,7 +88,7 @@ async def hps(ws):# 循环发送心跳包
 
 async def live(roomid:int,url:str,token:str):
     global hpst
-    async with websockets.connect(url,logger=LoggerAdapter(wslog,{"websocket":""}))as ws:
+    async with websockets.connect(url,logger=LoggerAdapter(wslog,{"websocket":""}),user_agent_header=UA)as ws:
         await ws.send(joinroom(roomid,token))
         hpst=asyncio.create_task(hps(ws),name="循环发送心跳包")
         async for msg in ws:

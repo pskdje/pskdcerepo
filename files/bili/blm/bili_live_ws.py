@@ -2,22 +2,15 @@
 使用的第三方库: requests , websockets
 可选的第三方库: brotli
 数据包参考自: https://github.com/SocialSisterYi/bilibili-API-collect/blob/master/live/message_stream.md
-数据分析由我自己进行，请注意时效(更新日期:2023/06/30,增加条目)
+数据分析由我自己进行，请注意时效(更新日期:2024/02/22,更新条目)
 已存在的cmd很难确认是否需要更新
 本文件计划只实现基本功能
 本文件自带一个异常保存功能，出现异常时调用error函数即可。
 但要注意：它能记录的信息是有限的，并要尽快记录一些信息。因此，你可能需要自行处理一些信息。
 """
 
-import sys
-import os
-import time
-import json
-import re
-import zlib
-import errno
-import logging
-import traceback
+import sys,os,time,json,re,zlib
+import errno,logging,traceback
 import requests
 import asyncio
 import websockets
@@ -36,6 +29,7 @@ if not(sys.version_info[0]==3 and sys.version_info[1]>=10):
 DEBUG=not __debug__
 TIMEFORMAT="%Y/%m/%d-%H:%M:%S"
 UA="Mozilla/5.0 (X11; Linux x86_64; rv:100.0) Gecko/20100101 Firefox/100.0"
+VERSIONINFO=f"""Python/{sys.version.split()[0]}({sys.platform}) requests/{requests.__version__} websockets/{websockets.__version__}{" brotli/"+brotli.version if brotli else""}"""
 starttime=time.time()
 wslog=logging.getLogger("websockets.client")
 cumulative_error_count=0
@@ -59,6 +53,7 @@ def error(d=None):
             f.write("哔哩哔哩直播信息流\n时间: ")
             f.write(time.strftime("%Y/%m/%d-%H:%M:%S%z"))
             f.write("\n是否为执行入口: "+str(__name__=="__main__"))
+            f.write("\n版本信息: "+VERSIONINFO)
             f.write("\n命令行选项: "+str(runoptions))
             f.write("\n用户代理常量: "+str(UA))
             f.write("\n启动时间戳: "+str(starttime))
@@ -75,7 +70,7 @@ def error(d=None):
             traceback.print_exc(file=f)
             f.flush()
             if d!=None:
-                f.write("\n其它信息:\n\n"+str(d))
+                f.write("\n[其它信息]:\n\n"+str(d))
     except PermissionError as e:
         print("无权限保存异常信息:",e)
     except OSError as e:
@@ -104,8 +99,10 @@ def bilipack(t,da):
 
 def joinroom(id,k,uid=0):
     """返回加入直播间数据包\n连接后要立即发送
-    id: 直播间id\nk: 令牌\nuid: 用户id
-    2023/10/04增: 现在需要登录才能获得用户昵称（这么搞有什么用处？）"""
+	id: 直播间id
+	k: 令牌
+	uid: 用户id
+	2023/10/04增: 现在需要登录才能获得用户昵称（这么搞有什么用处？）"""
     protover=3 if brotli else 2
     return bilipack(7,json.dumps({"roomid":id,"key":k,"uid":uid,"platform":"web","protover":protover},separators=(",",":")))
 
@@ -136,14 +133,20 @@ def femsgd(msg):
     """分割数据包"""
     data=msg.split(b"\0\x10\0\0\0\0\0\x05\0\0\0\0")[1:]
     packlist=[]
-    for item in data:
-        if item[-4]==0:
-            packlist.append(json.loads(item[:-4]))
-        else:
-            packlist.append(json.loads(item))
-    return packlist
+    try:
+        for item in data:
+            if len(item)==4:continue
+            if item[-4]==0:
+                packlist.append(json.loads(item[:-4]))
+            else:
+                packlist.append(json.loads(item))
+        return packlist
+    except:
+        error("分割数据包时出现错误，原始字节串信息:\n"+str(msg))
+        print("无法解析数据")
+        return
 
-def save_http_error(r:"requests响应",t:str):
+def save_http_error(r:requests.Response,t:str):
     """保存HTTP错误"""
     header="header:\n"
     for k,v in r.headers.items():
@@ -201,7 +204,8 @@ def pac(pack,o):
             if not o.no_super_chat_message:
                 l_super_chat_message_delete(pack)
         case "LIVE_INTERACTIVE_GAME":# 类似弹幕，未确定
-            l_live_interactive_game(pack["data"])
+            if not o.no_live_interactive_game:
+                l_live_interactive_game(pack["data"])
         case "ROOM_CHANGE":# 直播间更新
             print("[直播]","分区:",pack["data"]["parent_area_name"],">",pack["data"]["area_name"],",标题:",pack["data"]["title"])
         case "LIVE":# 开始直播
@@ -215,6 +219,10 @@ def pac(pack,o):
                 l_stop_live_room_list(pack["data"])
         case "ROOM_BLOCK_MSG":# 用户被禁言
             print("[直播]","用户",pack["uname"],"已被禁言")
+        case "CUT_OFF":# 警告
+            print("[直播]","直播间",pack["roomid"],"被警告:",pack["msg"])
+        case "ROOM_LOCK":# 封禁
+            print("[直播]","直播间",pack["roomid"],"被封禁，解除时间:",pack["expire"])
         case "DANMU_AGGREGATION":# 弹幕聚集(?)
             pass
         case "HOT_RANK_CHANGED":# 当前直播间的排行
@@ -222,10 +230,10 @@ def pac(pack,o):
             if not o.no_hot_rank_changed:
                 l_hot_rank_changed(pack["data"])
         case "HOT_RANK_CHANGED_V2":
-            pass
-        case "ONLINE_RANK_COUNT":# (确认)
+            test_pack_add(pack["cmd"])
+        case "ONLINE_RANK_COUNT":# 在线排名
             if not o.no_online_rank_count:
-                print("[计数]","高能用户计数:",pack["data"]["count"])
+                l_online_rank_count(pack["data"])
         case "VOICE_JOIN_LIST":# 连麦列表(推测,原始数据已删除，暂时不打算重新确定)
             if not o.no_voice_join_list:
                 l_voice_join_list(pack["data"])
@@ -285,6 +293,9 @@ def pac(pack,o):
         case "AREA_RANK_CHANGED":# 大航海排行更新
             if not o.no_area_rank_changed:
                 l_area_rank_changed(pack["data"])
+        case "DM_INTERACTION":# 弹幕合并
+            if not o.no_dm_interaction:
+                l_dm_interaction(pack["data"])
         case "PK_BATTLE_PRE"|"PK_BATTLE_PRE_NEW":# PK即将开始
             if not o.no_pk_message:
                 l_pk_battle_pre(pack)
@@ -313,24 +324,37 @@ def pac(pack,o):
                 l_goto_buy_flow(pack["data"])
         case "LOG_IN_NOTICE":# 登录通知
             print("[需要登录]",pack["data"]["notice_msg"])
+        case "ANCHOR_LOT_CHECKSTATUS":# 天选时刻审核状态(?)
+            if not o.no_anchor_lot:
+                l_anchor_lot_checkstatus(pack["data"])
+        case "ANCHOR_LOT_START":# 天选时刻开始
+            if not o.no_anchor_lot:
+                l_anchor_lot_start(pack["data"])
+        case "ANCHOR_LOT_END":# 天选时刻结束
+            if not o.no_anchor_lot:
+                print("[天选时刻]","id为",pack["data"]["id"],"的天选时刻已结束")
+        case "ANCHOR_LOT_AWARD":# 天选时刻开奖
+            if not o.no_anchor_lot:
+                l_anchor_lot_award(pack["data"])
         case(# 不进行支持
             "HOT_ROOM_NOTIFY"|# 未知，内容会在哔哩哔哩直播播放器日志中显示
             "WIDGET_GIFT_STAR_PROCESS"|# 礼物星球(礼物名)
             "WIDGET_WISH_LIST"|# 愿望清单(机翻)
-            "PK_BATTLE_SETTLE_USER"# 不支持原因: 懒
+            "PK_BATTLE_SETTLE_USER"|# 不支持原因: 懒
+            "SEND_GIFT_V2"# 礼物第二版(没搞懂意义何在)
         ): test_pack_add(pack["cmd"])
         case _:# 未知命令
             if not o.no_print_enable:
                 print(f"[支持] 不支持'{pack['cmd']}'命令")
             if DEBUG or o.save_unknow_datapack:
                 savepack(pack)
-    if pack.get("is_report"):# 2023年7月初出现。注：部分数据包可能会奇怪的不存在该键。
-        if DEBUG or o.print_is_report:
-            print("[调试]","数据包的is_report为真，显示：","is_report:",pack["is_report"],"msg_id:",pack["msg_id"],"send_time:",pack["send_time"])
 
 def pacs(packlist,o):
     # 将数据包列表遍历发送给pac处理
     # 记录出现异常的数据包
+    if packlist is None:
+        if DEBUG:print("数据包处理函数pacs未收到数据包列表")
+        return
     this_error_count=0
     for pack in packlist:
         try:
@@ -409,7 +433,7 @@ def start(roomid,o):
             }
         )
     except KeyboardInterrupt:
-        print("获取操作被中断")
+        print("获取信息操作被中断")
     except:
         print("获取信息流地址失败:",sys.exc_info()[1])
         error()
@@ -432,6 +456,8 @@ def start(roomid,o):
         except websockets.exceptions.ConnectionClosedError as e:
             error()
             print("连接关闭:",e)
+            if o.sessdata and time.time()-starttime<30:
+                print("检测到使用了会话SESSDATA信息，请检查相关参数的正确性和有效性。")
             sys.exit(1)
         except websockets.exceptions.InvalidMessage as e:
             error()
@@ -449,7 +475,7 @@ def start(roomid,o):
             sys.exit(1)
         except Exception:
             error("捕捉函数 bililivemsg 抛出的异常\n"f"WebSocket Server: {ws_host}"f"\nroomid: {roomid}\ntoken: {d['data']['token']}")
-            print("出现内部异常，请查看错误记录文件自行排除问题或在你获取本文件的git仓库开一个issue。")
+            print("=出现内部异常=\n请查看错误记录文件自行排除问题或在你获取本文件的git仓库开一个issue。")
             print("开issus请检查是否有相同的问题，若有就附加上去。记得附上错误文件，也不要忘记检查是否有敏感信息。")
             print("若使用登录信息，请将错误文件中命令行选项内的sessdata替换为'SESSDATA'字符串，切勿改成None，否则无法确定是否为登录时发生的问题。")
             print("uid也不要替换为0，随便一个正数。如果uid为0，这边会更偏向于没有正确使用参数导致出现问题。")
@@ -551,13 +577,18 @@ def l_live_interactive_game(d):
     for b in brs:
         if b.search(d["msg"]):
             return
-    print("[弹幕]",f"{d['uname']}:",d["msg"])
+    print("[弹幕](LIG)",f"{d['uname']}:",d["msg"])
 def l_room_real_time_message_update(d):
     print("[信息]",d["roomid"],"直播间",d["fans"],"粉丝",sep=" ")
 def l_stop_live_room_list(d):
     print("[停播]","停止直播的房间列表:",f"len({len(d['room_id_list'])})")
 def l_hot_rank_changed(d):
     print("[排行]",d["area_name"],"第",d["rank"],"名")
+def l_online_rank_count(d):
+    olc=""
+    if "online_count"in d:
+        olc="在线计数: "+str(d["online_count"])
+    print("[计数]","高能用户计数:",d["count"],olc)
 def l_voice_join_list(d):
     print("[连麦]","申请计数:",d["apply_count"])
 def l_online_rank_top3(d):
@@ -622,8 +653,12 @@ def l_popular_rank_changed(d):
     print("[排行]","人气榜第",d["rank"],"名")
 def l_area_rank_changed(d):
     print("[排行]",d["rank_name"],"第",d["rank"],"名")
+def l_dm_interaction(d):
+    n=json.loads(d["data"])
+    for c in n["combo"]:
+        print("[弹幕合并]",c["guide"],c["content"],"×"+str(c["cnt"]))
 def l_pk_battle_pre(d):
-    print("[PK]","PK即将开始",f"id:{d['pk_id']}",f"s:{d['pk_status']}","对方昵称:",d["data"]["uname"],"直播间",d["data"]["room_id"])
+    print("[PK]","PK即将开始",f"id:{d['pk_id']}",f"s:{d['pk_status']}","对方直播间",d["data"]["room_id"],"昵称:",d["data"]["uname"])
 def l_pk_battle_start(d):
     a=d["data"]
     print("[PK]","PK开始",f"id:{d['pk_id']}",f"s:{d['pk_status']}","计数名称:",a["pk_votes_name"],f"增量:{a['pk_votes_add']}")
@@ -648,6 +683,12 @@ def l_recommend_card(d,s):
         raise SavePack("保存推荐卡片")
 def l_goto_buy_flow(d):
     print("[广告]",d["text"])
+def l_anchor_lot_checkstatus(d):
+    print("[天选时刻]","状态更新",f"id:{d['id']},status:{d['status']},uid:{d['uid']}",f"reject_danmu:{repr(d['reject_danmu'])} reject_reason:{repr(d['reject_reason'])}")
+def l_anchor_lot_start(d):
+    print("[天选时刻]",d["award_name"],f"{d['award_num']}人",f'''发送"{d['danmu']}"参与,需要"{d['require_text']}"''',f"id:{d['id']}",f"最大时间{d['max_time']}秒,剩余{d['time']}秒")
+def l_anchor_lot_award(d):
+    print("[天选时刻]",d["award_name"],f"{d['award_num']}人","已开奖",f"id:{d['id']}",f"中奖用户数量{len(d['award_users'])}")
 # 命令处理调用处(结束)
 
 def get_SESSDATA(s):# 获取登录会话标识
@@ -683,6 +724,7 @@ def pararg():
     cmd.add_argument("--no-combo-send",help="关闭组合礼物信息",action="store_true")
     cmd.add_argument("--no-watched-change",help="关闭看过信息",action="store_true")
     cmd.add_argument("--no-super-chat-message",help="关闭醒目留言信息",action="store_true")
+    cmd.add_argument("--no-live-interactive-game",help="关闭特殊数据格式弹幕",action="store_true")
     cmd.add_argument("--no-stop-live-room-list",help="关闭停止直播的房间列表信息",action="store_true")
     cmd.add_argument("--no-hot-rank-changed",help="关闭当前直播间的排行信息",action="store_true")
     cmd.add_argument("--no-online-rank-count",help="关闭高能用户计数信息",action="store_true")
@@ -702,16 +744,17 @@ def pararg():
     cmd.add_argument("--no-like-info-update",help="关闭点赞计数信息",action="store_true")
     cmd.add_argument("--no-popular-rank-changed",help="关闭人气排行更新",action="store_true")
     cmd.add_argument("--no-area-rank-changed",help="关闭大航海排行更新",action="store_true")
+    cmd.add_argument("--no-dm-interaction",help="关闭弹幕合并信息",action="store_true")
     cmd.add_argument("--no-pk-message",help="关闭全部PK信息",action="store_true")
     cmd.add_argument("--no-pk-battle-process",help="关闭PK过程信息",action="store_true")
     cmd.add_argument("--no-recommend-card",help="关闭推荐卡片信息",action="store_true")
     cmd.add_argument("--save-recommend-card",help="保存推荐卡片信息(调试)",action="store_true")
     cmd.add_argument("--no-goto-buy-flow",help="关闭购买推荐商品信息",action="store_true")
-    # 未知功能
-    parser.add_argument("--print-is-report",help="当is_report为真时打印3个属性",action="store_true")
+    cmd.add_argument("--no-anchor-lot",help="关闭天选时刻信息",action="store_true")
     # 附加功能
     parser.add_argument("-S","--shielding-words",help="屏蔽词(完全匹配)",type=argparse.FileType("rt"),metavar="FILE")
     parser.add_argument("-B","--blocking-rules",help="屏蔽规则",type=argparse.FileType("rt"),metavar="FILE")
+    parser.add_argument("--print-pack-count",help="打印数据包计数",action="store_true")
     args=parser.parse_args()
     runoptions=args
     DEBUG=DEBUG or args.debug
@@ -720,7 +763,8 @@ def pararg():
 def main():
     args=pararg()
     if DEBUG:
-        print("命令行选项: ",args)
+        print("版本信息:",VERSIONINFO)
+        print("命令行选项:",args)
         set_wslog()
     roomid=args.roomid
     print("直播间ID:",roomid)
@@ -733,7 +777,7 @@ def main():
         start(roomid,args)
     except KeyboardInterrupt:
         print("关闭连接")
-        if DEBUG:
+        if DEBUG or args.print_pack_count:
             print("被测试的cmd计数:")
             print_test_pack_count()
         sys.exit(0)

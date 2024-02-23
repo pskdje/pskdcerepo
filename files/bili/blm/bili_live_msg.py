@@ -63,7 +63,9 @@ def main():
     try:
         o=blw.pararg()
         if blw.DEBUG:
+            print("版本信息:",blm.VERSIONINFO)
             print("命令行参数:",o)
+            blw.set_wslog()
         print("获取数据…")
         ri=get_room_init(o.roomid)
         ru=get_room_info(ri["room_id"])

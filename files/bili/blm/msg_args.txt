@@ -23,6 +23,8 @@
 --no-like-info-update
 --no-popular-rank-changed
 --no-area-rank-changed
+--no-dm-interaction
 --no-pk-message
 --no-recommend-card
 --no-goto-buy-flow
+--no-anchor-lot

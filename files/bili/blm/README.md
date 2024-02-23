@@ -26,7 +26,7 @@
 
 > 可选依赖: `brotli`
 
-具体的选项请输入 `-h` 或 `--help` 来查看帮助
+具体的选项请输入 `-h` 或 `--help` 来查看帮助。部分信息也可以查看[bili_live_ws.md](bili_live_ws.md)。
 
 一些异常并未进行捕捉，遇到解释器打印异常时，请不用惊慌，这是正常现象。因为该程序并未考虑用户交互，也不完善。
 
@@ -60,7 +60,7 @@ python bili_live_ws.py -h
 
 ### [bili_args.txt]
 
-仿照互动区域可能显示的内容来显示信息
+仿照互动区域可能显示的内容来显示信息。
 
 ### [msg_args.txt]
 
@@ -68,17 +68,17 @@ python bili_live_ws.py -h
 
 ### [my_args.txt]
 
-给我自己使用的命令行参数
+给我自己使用的命令行参数。
 
 ### [bili live msg.py]
 
 获取信息流，保存数据包。
 
-仅支持zlib解压缩
+仅支持zlib解压缩！
 
-自动切割数据包
+自动切割数据包。
 
-bili_live_ws.py 就是从这拓展出来的
+bili_live_ws.py 就是从这拓展出来的。
 
 用法:
 ```shell
