@@ -156,7 +156,7 @@ def save_http_error(r:requests.Response,t:str):
         header+"body:\n"+r.text+"\n")
 
 class SavePack(RuntimeError):
-    """保存数据包"""
+    """用于保存数据包的异常"""
     pass
 
 def savepack(d):
@@ -391,6 +391,8 @@ async def bililivemsg(url,roomid,o,token,uid):
         print("连接服务器…")
     if o.sessdata and not uid:
         print("提示: 使用了sessdata但未提供uid")
+    if uid and not o.sessdata:
+        print("警告: 使用了uid但未提供sessdata")
     async with websockets.connect(url,user_agent_header=UA)as ws:
         if DEBUG:
             print("服务器已连接")
@@ -418,7 +420,10 @@ async def bililivemsg(url,roomid,o,token,uid):
                     print(msg)
 
 def start(roomid,o):
-    """程序入口"""
+    """程序入口
+	roomid: 真实房间号
+	o: 命令行解析后参数组"""
+    if not isinstance(roomid,int):raise TypeError("roomid不是整数")
     if DEBUG:
         print("获取直播信息流地址…")
     try:
@@ -434,54 +439,61 @@ def start(roomid,o):
         )
     except KeyboardInterrupt:
         print("获取信息操作被中断")
+        sys.exit(0)
     except:
         print("获取信息流地址失败:",sys.exc_info()[1])
         error()
-    else:
-        if r.status_code!=200:
-            print("数据获取失败")
-            print("HTTP",r.status_code)
-            save_http_error(r,"状态码不为200")
-            sys.exit(1)
+        sys.exit(1)
+    if r.status_code!=200:
+        print("数据获取失败")
+        print("HTTP",r.status_code)
+        save_http_error(r,"状态码不为200")
+        sys.exit(1)
+    try:
         d=r.json()
-        if d["code"]!=0:
-            print("获取信息流地址时code不为0")
-            print(d["code"],"-",d["message"])
-            save_http_error(r,"获取的code不为0")
-            sys.exit(1)
+    except:
+        print("数据解析失败")
+        save_http_error(r,"JSON解析失败")
+        sys.exit(1)
+    if d["code"]!=0:
+        print("获取信息流地址时code不为0")
+        print(d["code"],"-",d["message"])
+        save_http_error(r,"获取到的code不为0")
+        sys.exit(1)
+    try:
         u=d["data"]["host_list"][0]
         ws_host=f"{u['host']}:{u['wss_port']}"
-        try:
-            asyncio.run(bililivemsg(f"wss://{ws_host}/sub",roomid,o,d["data"]["token"],o.uid))
-        except websockets.exceptions.ConnectionClosedError as e:
-            error()
-            print("连接关闭:",e)
-            if o.sessdata and time.time()-starttime<30:
-                print("检测到使用了会话SESSDATA信息，请检查相关参数的正确性和有效性。")
-            sys.exit(1)
-        except websockets.exceptions.InvalidMessage as e:
-            error()
-            print("信息错误:",e)
-            sys.exit(1)
-        except TimeoutError:
-            error()
-            print("内部超时")
-            print("请检查网络是否通畅。")
-            sys.exit(errno.ETIMEDOUT)
-        except OSError:
-            error()
-            print("出现OS异常，详细信息请查看错误记录文件。")
-            print("可以先检查一下网络。大部分异常都由网络问题引起的。")
-            sys.exit(1)
-        except Exception:
-            error("捕捉函数 bililivemsg 抛出的异常\n"f"WebSocket Server: {ws_host}"f"\nroomid: {roomid}\ntoken: {d['data']['token']}")
-            print("=出现内部异常=\n请查看错误记录文件自行排除问题或在你获取本文件的git仓库开一个issue。")
-            print("开issus请检查是否有相同的问题，若有就附加上去。记得附上错误文件，也不要忘记检查是否有敏感信息。")
-            print("若使用登录信息，请将错误文件中命令行选项内的sessdata替换为'SESSDATA'字符串，切勿改成None，否则无法确定是否为登录时发生的问题。")
-            print("uid也不要替换为0，随便一个正数。如果uid为0，这边会更偏向于没有正确使用参数导致出现问题。")
-            sys.exit(1)
+        token=d["data"]["token"]
+        asyncio.run(bililivemsg(f"wss://{ws_host}/sub",roomid,o,token,o.uid))
+    except websockets.exceptions.ConnectionClosedError as e:
+        error()
+        print("连接关闭:",e)
+        if (o.sessdata or o.uid) and time.time()-starttime<10:
+            print("检测到使用了登录会话信息，请检查相关参数的正确性和有效性。")
+        sys.exit(1)
+    except websockets.exceptions.InvalidMessage as e:
+        error()
+        print("信息错误:",e)
+        sys.exit(1)
+    except TimeoutError:
+        error()
+        print("内部超时")
+        print("请检查网络是否通畅。")
+        sys.exit(errno.ETIMEDOUT)
+    except OSError as e:
+        error()
+        print("出现OS异常，详细信息请查看错误记录文件。")
+        print("可以先检查一下网络。大部分异常都由网络问题引起的。")
+        sys.exit(e.errno)
+    except Exception:
+        error("捕捉函数 bililivemsg 抛出的异常\n"f"WebSocket Server: {ws_host}"f"\nroomid: {roomid}\ntoken: {token}")
+        print("=出现内部异常=\n请查看错误记录文件自行排除问题或在你获取本文件的git仓库开一个issue。")
+        print("开issus请检查是否有相同的问题，若有就附加上去。记得附上错误文件，也不要忘记检查是否有敏感信息。")
+        print("若使用登录信息，请将错误文件中命令行选项内的sessdata替换为'SESSDATA'字符串，切勿改成None，否则无法确定是否为登录时发生的问题。")
+        print("uid也不要替换为0，随便一个正数。如果uid为0，这边会更偏向于没有正确使用参数导致出现问题。")
+        sys.exit(1)
 
-def set_wslog():
+def set_wslog():# 保存ws客户端日志
     import logging.handlers
     rp=Path("bili_live_ws_log")
     if not rp.is_dir():
@@ -698,10 +710,19 @@ def get_SESSDATA(s):# 获取登录会话标识
         if p.stat().st_size>65536:
             print("[错误] 会话文件过大")
             raise ValueError("file large")
-        return p.read_text().splitlines()[0].split("\t")[-1]
+        fts=p.read_text().splitlines()
+        for ft in fts:
+            ftt=ft.split("\t")
+            if len(fts)==1 and len(ftt)==1:return ftt[0]# 如果只有1行且分割后只有1个数据,直接返回这个数据,否则试着按照cookie.txt解析数据
+            if ftt[0]!=".bilibili.com"or ftt[-2]!="SESSDATA":continue
+            return ftt[-1]
+        if not len(fts):raise ValueError("The file has no items.")
+        print("[警告] 未找到SESSDATA")
+        return None
     return s
 
 def pararg():
+    """命令行参数解析"""
     import argparse
     global DEBUG
     global runoptions
@@ -760,11 +781,12 @@ def pararg():
     DEBUG=DEBUG or args.debug
     return args
 
-def main():
+def main():# 启动
     args=pararg()
     if DEBUG:
         print("版本信息:",VERSIONINFO)
         print("命令行选项:",args)
+        print("启动时间戳:",starttime)
         set_wslog()
     roomid=args.roomid
     print("直播间ID:",roomid)

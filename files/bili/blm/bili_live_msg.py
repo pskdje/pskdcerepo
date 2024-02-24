@@ -119,7 +119,7 @@ if __name__=="__main__":
         main()
     except KeyboardInterrupt:
         print("关闭")
-        if blw.DEBUG:
+        if blw.DEBUG or o.print_pack_count:
             print("被测试的cmd计数:")
             blw.print_test_pack_count()
         exit(0)
