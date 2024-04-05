@@ -1,8 +1,9 @@
 """哔哩哔哩直播信息流
+在Python 3.10或以上运行。经过测试的范围: 3.10 ~ 3.11
 使用的第三方库: requests , websockets
 可选的第三方库: brotli
 数据包参考自: https://github.com/SocialSisterYi/bilibili-API-collect/blob/master/live/message_stream.md
-数据分析由我自己进行，请注意时效(更新日期:2024/02/22,更新条目)
+数据分析由我自己进行，请注意时效(更新日期:2024/04/05,修复条目)
 已存在的cmd很难确认是否需要更新
 本文件计划只实现基本功能
 本文件自带一个异常保存功能，出现异常时调用error函数即可。
@@ -20,12 +21,6 @@ try:
 except ImportError:
     brotli=None
 
-if not(sys.version_info[0]==3 and sys.version_info[1]>=10):
-    print("Python 版本需要大于等于3.10",file=sys.stderr)
-    print("否则会出现语法错误",file=sys.stderr)
-    print("Python version >= 3.10",file=sys.stderr)
-    sys.exit(1)
-
 DEBUG=not __debug__
 TIMEFORMAT="%Y/%m/%d-%H:%M:%S"
 UA="Mozilla/5.0 (X11; Linux x86_64; rv:100.0) Gecko/20100101 Firefox/100.0"
@@ -39,6 +34,8 @@ hpst=None
 swd=[]
 brs=[]
 test_pack_count={}
+is_importCmdHandle=False
+cmdHandleList=[]
 wslog.setLevel(logging.DEBUG)
 
 def error(d=None):
@@ -58,6 +55,8 @@ def error(d=None):
             f.write("\n用户代理常量: "+str(UA))
             f.write("\n启动时间戳: "+str(starttime))
             f.write("\n累计错误数: "+str(cumulative_error_count))
+            f.write("\n是否载入额外的处理函数: "+str(is_importCmdHandle))
+            f.write("\n被替换的处理函数: "+str(cmdHandleList))
             f.write("\n部分参数:\n")
             f.write("\tDEBUG= "+str(DEBUG))
             f.write("\n\tsequence= "+str(sequence))
@@ -207,22 +206,22 @@ def pac(pack,o):
             if not o.no_live_interactive_game:
                 l_live_interactive_game(pack["data"])
         case "ROOM_CHANGE":# 直播间更新
-            print("[直播]","分区:",pack["data"]["parent_area_name"],">",pack["data"]["area_name"],",标题:",pack["data"]["title"])
+            l_room_change(pack["data"])
         case "LIVE":# 开始直播
-            print("[直播]","直播间",pack["roomid"],"开始直播")
+            l_live(pack)
         case "PREPARING":# 结束直播
-            print("[直播]","直播间",pack["roomid"],"结束直播")
+            l_preparing(pack)
         case "ROOM_REAL_TIME_MESSAGE_UPDATE":# 数据更新
             l_room_real_time_message_update(pack["data"])
         case "STOP_LIVE_ROOM_LIST":# 停止直播的房间列表(推测)
             if not o.no_stop_live_room_list:
                 l_stop_live_room_list(pack["data"])
         case "ROOM_BLOCK_MSG":# 用户被禁言
-            print("[直播]","用户",pack["uname"],"已被禁言")
+            l_room_block_msg(pack)
         case "CUT_OFF":# 警告
-            print("[直播]","直播间",pack["roomid"],"被警告:",pack["msg"])
+            l_cut_off(pack)
         case "ROOM_LOCK":# 封禁
-            print("[直播]","直播间",pack["roomid"],"被封禁，解除时间:",pack["expire"])
+            l_room_lock(pack)
         case "DANMU_AGGREGATION":# 弹幕聚集(?)
             pass
         case "HOT_RANK_CHANGED":# 当前直播间的排行
@@ -275,15 +274,15 @@ def pac(pack,o):
         case "ROOM_SKIN_MSG":# 直播间皮肤更新
             l_room_skin_msg(pack)
         case "LIVE_MULTI_VIEW_CHANGE":
-            print("[信息]","LIVE_MULTI_VIEW_CHANGE",pack["data"])
+            l_live_multi_view_change(pack["data"])
         case "POPULARITY_RED_POCKET_NEW":# 新红包(?)
             if not o.no_popularity_red_pocket_new:
                 l_popularity_red_pocket_new(pack["data"])
         case "POPULARITY_RED_POCKET_START":# 增加屏蔽词(才怪)
             l_popularity_red_pocket_start(pack["data"])
-        case "LIKE_INFO_V3_UPDATE":
+        case "LIKE_INFO_V3_UPDATE":# 点赞数量
             if not o.no_like_info_update:
-                print("[计数]","点赞点击数量:",pack["data"]["click_count"])
+                l_like_info_v3_update(pack["data"])
         case "LIKE_INFO_V3_CLICK":# 点赞点击(推测)
             if not o.no_interact_word:# 使用屏蔽交互信息的选项
                 l_like_info_v3_click(pack["data"])
@@ -323,7 +322,7 @@ def pac(pack,o):
             if not o.no_goto_buy_flow:
                 l_goto_buy_flow(pack["data"])
         case "LOG_IN_NOTICE":# 登录通知
-            print("[需要登录]",pack["data"]["notice_msg"])
+            l_log_in_notice(pack["data"])
         case "ANCHOR_LOT_CHECKSTATUS":# 天选时刻审核状态(?)
             if not o.no_anchor_lot:
                 l_anchor_lot_checkstatus(pack["data"])
@@ -332,7 +331,7 @@ def pac(pack,o):
                 l_anchor_lot_start(pack["data"])
         case "ANCHOR_LOT_END":# 天选时刻结束
             if not o.no_anchor_lot:
-                print("[天选时刻]","id为",pack["data"]["id"],"的天选时刻已结束")
+                l_anchor_lot_end(pack["data"])
         case "ANCHOR_LOT_AWARD":# 天选时刻开奖
             if not o.no_anchor_lot:
                 l_anchor_lot_award(pack["data"])
@@ -546,6 +545,27 @@ def print_test_pack_count():
     for k,v in test_pack_count.items():
         print("cmd",k,"计数",v)
 
+def import_cmd_handle():
+    """导入命令处理"""
+    global is_importCmdHandle
+    try:
+        import cmd_handle as chm
+    except ImportError:
+        return
+    if DEBUG:print("存在cmd_handle模块，已导入。")
+    for chn in dir(chm):
+        if chn[0:2]!="l_":continue# 必须要以"l_"开头
+        ch=getattr(chm,chn,None)
+        if not callable(ch):continue
+        globals()[chn]=ch
+        cmdHandleList.append(chn)
+    else:
+        is_importCmdHandle=True
+        print("检测到存在额外的命令处理，已自动导入并替换对应处理函数。")
+    if DEBUG:
+        print("是否载入函数:",is_importCmdHandle)
+        print("被替换的函数:",cmdHandleList)
+
 # 命令处理调用处(开始)
 def l_danmu_msg(d):
     if d[1]in swd:
@@ -557,13 +577,14 @@ def l_danmu_msg(d):
 def l_interact_word(d,o):
     info="[交互]"
     mt=d["msg_type"]
+    nm=d["uname"]
     if mt==1:
         if not o.no_enter_room:
-            print(info,d["uname"],"进入直播间",sep=" ")
+            print(info,nm,"进入直播间")
     elif mt==2:
-        print(info,d["uname"],"关注直播间",sep=" ")
+        print(info,nm,"关注直播间")
     elif mt==3:
-        print(info,d["uname"],"分享直播间",sep=" ")
+        print(info,nm,"分享直播间")
     else:
         if not o.no_print_enable:
             print("[支持]","未知的交互类型:",d["msg_type"])
@@ -571,9 +592,9 @@ def l_interact_word(d,o):
 def l_entry_effect(d):
     print("[进场]",d["copy_writing"])
 def l_send_gift(d):
-    print("[礼物]",d["uname"],d["action"],d["giftName"],"*",d["num"],sep=" ")
+    print("[礼物]",d["uname"],d["action"],d["giftName"],"×",d["num"])
 def l_combo_send(d):
-    print("[礼物]",d["uname"],d["action"],d["gift_name"],"*",d["total_num"],sep=" ")
+    print("[礼物]",d["uname"],d["action"],d["gift_name"],"×",d["total_num"])
 def l_watched_change(d):
     if DEBUG:
         print("[观看]",d["num"],"人看过;","text_large:",d["text_large"])
@@ -590,10 +611,22 @@ def l_live_interactive_game(d):
         if b.search(d["msg"]):
             return
     print("[弹幕](LIG)",f"{d['uname']}:",d["msg"])
+def l_room_change(d):
+    print("[直播]","分区:",d["parent_area_name"],">",d["area_name"],",标题:",d["title"])
+def l_live(p):
+    print("[直播]","直播间",p["roomid"],"开始直播")
+def l_preparing(p):
+    print("[直播]","直播间",p["roomid"],"结束直播")
 def l_room_real_time_message_update(d):
-    print("[信息]",d["roomid"],"直播间",d["fans"],"粉丝",sep=" ")
+    print("[信息]",d["roomid"],"直播间",d["fans"],"粉丝")
 def l_stop_live_room_list(d):
     print("[停播]","停止直播的房间列表:",f"len({len(d['room_id_list'])})")
+def l_room_block_msg(p):
+    print("[直播]","用户",p["uname"],"已被禁言")
+def l_cut_off(p):
+    print("[直播]","直播间",p["room_id"],"被警告:",p["msg"])
+def l_room_lock(p):
+    print("[直播]","直播间",p["roomid"],"被封禁，解除时间:",p["expire"])
 def l_hot_rank_changed(d):
     print("[排行]",d["area_name"],"第",d["rank"],"名")
 def l_online_rank_count(d):
@@ -652,13 +685,17 @@ def l_super_chat_entrance(d):
         print("因为样本稀少，暂不提供屏蔽该不支持信息")
         raise SavePack("未知的status")
 def l_room_skin_msg(d):
-    print("[信息]","直播间皮肤更新","id:",d["skin_id"],",status:",d["status"],",结束时间:",time.strftime(TIMEFORMAT,time.gmtime(d["end_time"])),",当前时间:",time.strftime(TIMEFORMAT,time.gmtime(d["current_time"])),sep=" ")
+    print("[信息]","直播间皮肤更新","id:",d["skin_id"],",status:",d["status"],",结束时间:",time.strftime(TIMEFORMAT,time.gmtime(d["end_time"])),",当前时间:",time.strftime(TIMEFORMAT,time.gmtime(d["current_time"])))
+def l_live_multi_view_change(d):
+    print("[信息]","LIVE_MULTI_VIEW_CHANGE",d)
 def l_popularity_red_pocket_new(d):
-    print("[通知]",d["uname"],d["action"],"价值",d["price"],"电池的",d["gift_name"],sep=" ")
+    print("[通知]",d["uname"],d["action"],"价值",d["price"],"电池的",d["gift_name"])
 def l_popularity_red_pocket_start(d):
     if d["danmu"]not in swd:
         swd.append(d["danmu"])
         print("[屏蔽]","屏蔽词增加:",d["danmu"])
+def l_like_info_v3_update(d):
+    print("[计数]","点赞点击数量:",d["click_count"])
 def l_like_info_v3_click(d):
     print("[交互]",d["uname"],d["like_text"])
 def l_popular_rank_changed(d):
@@ -695,10 +732,14 @@ def l_recommend_card(d,s):
         raise SavePack("保存推荐卡片")
 def l_goto_buy_flow(d):
     print("[广告]",d["text"])
+def l_log_in_notice(d):
+    print("[需要登录]",d["notice_msg"])
 def l_anchor_lot_checkstatus(d):
     print("[天选时刻]","状态更新",f"id:{d['id']},status:{d['status']},uid:{d['uid']}",f"reject_danmu:{repr(d['reject_danmu'])} reject_reason:{repr(d['reject_reason'])}")
 def l_anchor_lot_start(d):
     print("[天选时刻]",d["award_name"],f"{d['award_num']}人",f'''发送"{d['danmu']}"参与,需要"{d['require_text']}"''',f"id:{d['id']}",f"最大时间{d['max_time']}秒,剩余{d['time']}秒")
+def l_anchor_lot_end(d):
+    print("[天选时刻]","id为",d["id"],"的天选时刻已结束")
 def l_anchor_lot_award(d):
     print("[天选时刻]",d["award_name"],f"{d['award_num']}人","已开奖",f"id:{d['id']}",f"中奖用户数量{len(d['award_users'])}")
 # 命令处理调用处(结束)
@@ -737,6 +778,7 @@ def pararg():
     parser.add_argument("--pack-error-no-exit",help="数据包处理异常时不退出",action="store_false")
     parser.add_argument("--sessdata",help="使用登录会话标识",type=get_SESSDATA,metavar="SESSDATA|FILE")
     parser.add_argument("--uid",help="用户UID，使用SESSDATA时必须",type=int,default=0)
+    parser.add_argument("--no-auto-import-cmd-handle",help="阻止自动导入额外的命令处理",action="store_false",dest="atirch")
     # 关闭一个或多个cmd显示
     cmd=parser.add_argument_group("关闭某个cmd的显示")
     cmd.add_argument("--no-interact-word",help="关闭直播间交互信息",action="store_true")
@@ -794,6 +836,8 @@ def main():# 启动
         shielding_words(args.shielding_words)
     if args.blocking_rules:
         blocking_rules(args.blocking_rules)
+    if args.atirch:
+        import_cmd_handle()
     print("连接直播间…")
     try:
         start(roomid,args)

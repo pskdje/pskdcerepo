@@ -105,6 +105,8 @@ def main():
             blw.shielding_words(o.shielding_words)
         if o.blocking_rules:
             blw.blocking_rules(o.blocking_rules)
+        if o.atirch:
+            blw.import_cmd_handle()
         print("连接直播间…")
         blw.start(ri["room_id"],o)
     except Exception:

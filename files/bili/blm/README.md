@@ -30,6 +30,8 @@
 
 一些异常并未进行捕捉，遇到解释器打印异常时，请不用惊慌，这是正常现象。因为该程序并未考虑用户交互，也不完善。
 
+如果存在cmd_handle.py.py文件，将会自动导入。
+
 2023/10/05**增**: 现在需要登录才能获得用户昵称，所以增加了 `--sessdata` 和 `--uid` 参数。
 当 `--sessdata` 存在时必须使用 `--uid` 参数，否则连接将被关闭。
 使用某个UID登录后获取的SESSDATA拿到这里使用时必须正确填写这个UID，否则连接将关闭。
@@ -53,6 +55,14 @@ python bili_live_ws.py -h
 > **bili_live_ws.py 要在同一个目录下** 
 
 > 还要保证 bili_live_ws.py 的依赖有处理好
+
+### [color_cmd_handle.py]
+
+从bili_live_ws.py中分离出的命令处理。
+
+将本文件重命名为cmd_handle.py即可在部分shell享受到额外的着色。
+
+也许还能实现更强大的功能。
 
 ### [default_args.txt]
 
