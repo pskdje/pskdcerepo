@@ -3,7 +3,7 @@
 使用的第三方库: requests , websockets
 可选的第三方库: brotli
 数据包参考自: https://github.com/SocialSisterYi/bilibili-API-collect/blob/master/live/message_stream.md
-数据分析由我自己进行，请注意时效(更新日期:2024/04/05,修复条目)
+数据分析由我自己进行，请注意时效(更新日期:2024/04/06,新增条目)
 已存在的cmd很难确认是否需要更新
 本文件计划只实现基本功能
 本文件自带一个异常保存功能，出现异常时调用error函数即可。
@@ -176,7 +176,10 @@ def test_pack_add(c):
 
 def pac(pack,o):
     # 匹配cmd,处理内容
-    match pack["cmd"]:
+    cmd=pack["cmd"]
+    if cmd==o.save_cmd:
+        savepack(pack)
+    match cmd:
         case "DANMU_MSG":# 弹幕
             l_danmu_msg(pack["info"])
         case "INTERACT_WORD":# 交互
@@ -222,17 +225,23 @@ def pac(pack,o):
             l_cut_off(pack)
         case "ROOM_LOCK":# 封禁
             l_room_lock(pack)
+        case "ROOM_ADMINS":# 房管列表
+            l_room_admins(pack)
         case "DANMU_AGGREGATION":# 弹幕聚集(?)
             pass
         case "HOT_RANK_CHANGED":# 当前直播间的排行
-            test_pack_add(pack["cmd"])# 该功能可能被替代，确认一下
+            test_pack_add(cmd)# 该功能可能被替代，确认一下
             if not o.no_hot_rank_changed:
                 l_hot_rank_changed(pack["data"])
         case "HOT_RANK_CHANGED_V2":
-            test_pack_add(pack["cmd"])
-        case "ONLINE_RANK_COUNT":# 在线排名
+            test_pack_add(cmd)
+        case "ONLINE_RANK_COUNT":# 在线计数
             if not o.no_online_rank_count:
                 l_online_rank_count(pack["data"])
+        case "LITTLE_TIPS":# 某种提示，内容可能与使用的会话信息有关
+            l_little_tips(pack["data"])
+        case "LITTLE_MESSAGE_BOX":# 弹框提示
+            l_little_message_box(pack["data"])
         case "VOICE_JOIN_LIST":# 连麦列表(推测,原始数据已删除，暂时不打算重新确定)
             if not o.no_voice_join_list:
                 l_voice_join_list(pack["data"])
@@ -256,7 +265,7 @@ def pac(pack,o):
         case "COMMON_NOTICE_DANMAKU":# 普通通知
             if not o.no_common_notice_danmaku:
                 l_common_notice_danmaku(pack["data"])
-        case "NOTICE_MSG":# 公告
+        case "NOTICE_MSG":# 公告(广播)
             if not o.no_notice_msg:
                 l_notice_msg(pack)
         case "GUARD_BUY":# 舰队购买
@@ -283,7 +292,7 @@ def pac(pack,o):
         case "LIKE_INFO_V3_UPDATE":# 点赞数量
             if not o.no_like_info_update:
                 l_like_info_v3_update(pack["data"])
-        case "LIKE_INFO_V3_CLICK":# 点赞点击(推测)
+        case "LIKE_INFO_V3_CLICK":# 点赞点击
             if not o.no_interact_word:# 使用屏蔽交互信息的选项
                 l_like_info_v3_click(pack["data"])
         case "POPULAR_RANK_CHANGED":# 人气排行更新
@@ -336,9 +345,8 @@ def pac(pack,o):
             if not o.no_anchor_lot:
                 l_anchor_lot_award(pack["data"])
         case(# 不进行支持
-            "HOT_ROOM_NOTIFY"|# 未知，内容会在哔哩哔哩直播播放器日志中显示
-            "WIDGET_GIFT_STAR_PROCESS"|# 礼物星球(礼物名)
-            "WIDGET_WISH_LIST"|# 愿望清单(机翻)
+            "HOT_ROOM_NOTIFY"|# 未知，内容会在哔哩哔哩直播播放器日志中显示。
+            "WIDGET_GIFT_STAR_PROCESS"|# 礼物星球，不想写支持。
             "PK_BATTLE_SETTLE_USER"|# 不支持原因: 懒
             "SEND_GIFT_V2"# 礼物第二版(没搞懂意义何在)
         ): test_pack_add(pack["cmd"])
@@ -550,8 +558,11 @@ def import_cmd_handle():
     global is_importCmdHandle
     try:
         import cmd_handle as chm
-    except ImportError:
-        return
+    except ModuleNotFoundError:
+        return"not_found"
+    except ImportError as e:
+        error()
+        return"import_error"
     if DEBUG:print("存在cmd_handle模块，已导入。")
     for chn in dir(chm):
         if chn[0:2]!="l_":continue# 必须要以"l_"开头
@@ -565,6 +576,7 @@ def import_cmd_handle():
     if DEBUG:
         print("是否载入函数:",is_importCmdHandle)
         print("被替换的函数:",cmdHandleList)
+    return"success"
 
 # 命令处理调用处(开始)
 def l_danmu_msg(d):
@@ -627,6 +639,8 @@ def l_cut_off(p):
     print("[直播]","直播间",p["room_id"],"被警告:",p["msg"])
 def l_room_lock(p):
     print("[直播]","直播间",p["roomid"],"被封禁，解除时间:",p["expire"])
+def l_room_admins(p):
+    print("[直播]",f"房管列表: len({len(p['uids'])})")
 def l_hot_rank_changed(d):
     print("[排行]",d["area_name"],"第",d["rank"],"名")
 def l_online_rank_count(d):
@@ -634,6 +648,10 @@ def l_online_rank_count(d):
     if "online_count"in d:
         olc="在线计数: "+str(d["online_count"])
     print("[计数]","高能用户计数:",d["count"],olc)
+def l_little_tips(d):
+    print("[提示]",d["msg"])
+def l_little_message_box(d):
+    print("[弹框]",d["msg"])
 def l_voice_join_list(d):
     print("[连麦]","申请计数:",d["apply_count"])
 def l_online_rank_top3(d):
@@ -662,7 +680,11 @@ def l_hot_rank_settlement(d):
     print("[排行]",d["dm_msg"])
 def l_common_notice_danmaku(d):
     for cse in d["content_segments"]:
-        print("[通知]",cse["text"])
+        cset=cse["type"]
+        if cset==1:
+            print("[通知]",cse["text"])
+        elif cset==2:
+            print("[通知]","图片:",cse.get("img_url"))
 def l_notice_msg(d):
     if "name"in d:
         print("[公告]",d["name"],"=>",d["msg_self"])
@@ -773,12 +795,15 @@ def pararg():
     parser=argparse.ArgumentParser(usage="%(prog)s [options] roomid",description=desc,formatter_class=argparse.RawDescriptionHelpFormatter,fromfile_prefix_chars="@")
     parser.add_argument("roomid",help="直播间ID",type=int,default=23058)
     parser.add_argument("-d","--debug",help="开启调试模式",action="store_true")
-    parser.add_argument("--no-print-enable",help="不打印不支持的信息",action="store_true")
-    parser.add_argument("-u","--save-unknow-datapack",help="保存未知的数据包",action="store_true")
-    parser.add_argument("--pack-error-no-exit",help="数据包处理异常时不退出",action="store_false")
     parser.add_argument("--sessdata",help="使用登录会话标识",type=get_SESSDATA,metavar="SESSDATA|FILE")
     parser.add_argument("--uid",help="用户UID，使用SESSDATA时必须",type=int,default=0)
+    parser.add_argument("--no-print-enable",help="不打印不支持的信息",action="store_true")
+    parser.add_argument("--pack-error-no-exit",help="数据包处理异常时不退出",action="store_false")
     parser.add_argument("--no-auto-import-cmd-handle",help="阻止自动导入额外的命令处理",action="store_false",dest="atirch")
+    dbg=parser.add_argument_group("调试功能")
+    dbg.add_argument("-u","--save-unknow-datapack",help="保存未知的数据包",action="store_true")
+    dbg.add_argument("--print-pack-count",help="打印数据包计数",action="store_true")
+    dbg.add_argument("--save-cmd",help="保存某个cmd数据包")
     # 关闭一个或多个cmd显示
     cmd=parser.add_argument_group("关闭某个cmd的显示")
     cmd.add_argument("--no-interact-word",help="关闭直播间交互信息",action="store_true")
@@ -817,7 +842,6 @@ def pararg():
     # 附加功能
     parser.add_argument("-S","--shielding-words",help="屏蔽词(完全匹配)",type=argparse.FileType("rt"),metavar="FILE")
     parser.add_argument("-B","--blocking-rules",help="屏蔽规则",type=argparse.FileType("rt"),metavar="FILE")
-    parser.add_argument("--print-pack-count",help="打印数据包计数",action="store_true")
     args=parser.parse_args()
     runoptions=args
     DEBUG=DEBUG or args.debug
@@ -837,7 +861,8 @@ def main():# 启动
     if args.blocking_rules:
         blocking_rules(args.blocking_rules)
     if args.atirch:
-        import_cmd_handle()
+        r_ich=import_cmd_handle()
+        if DEBUG:print("导入命令处理的结果:",r_ich)
     print("连接直播间…")
     try:
         start(roomid,args)

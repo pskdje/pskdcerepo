@@ -14,6 +14,8 @@ import bili_live_ws as blw
 
 ua=blw.UA
 
+def __getattr__(name):
+    return getattr(blw,name)
 def get_room_init(roomid:int)->dict:
     try:
         r=requests.get(
@@ -106,22 +108,22 @@ def main():
         if o.blocking_rules:
             blw.blocking_rules(o.blocking_rules)
         if o.atirch:
-            blw.import_cmd_handle()
+            r_ich=blw.import_cmd_handle()
+            if blw.DEBUG:print("导入命令处理的结果:",r_ich)
         print("连接直播间…")
         blw.start(ri["room_id"],o)
     except Exception:
         print("出现错误")
         blw.error()
         exit(1)
-
-if __name__=="__main__":
-    print("哔哩哔哩直播信息流")
-    print("额外获取一些信息")
-    try:
-        main()
     except KeyboardInterrupt:
         print("关闭")
         if blw.DEBUG or o.print_pack_count:
             print("被测试的cmd计数:")
             blw.print_test_pack_count()
         exit(0)
+
+if __name__=="__main__":
+    print("哔哩哔哩直播信息流")
+    print("额外获取一些信息")
+    main()

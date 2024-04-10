@@ -1,0 +1,3 @@
+--save-unknow-datapack
+--pack-error-no-exit
+--print-pack-count
