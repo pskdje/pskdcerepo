@@ -27,4 +27,6 @@
 --no-pk-message
 --no-recommend-card
 --no-goto-buy-flow
+--no-gift-star-process
 --no-anchor-lot
+--no-anchor-normal-notify

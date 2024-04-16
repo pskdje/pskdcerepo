@@ -3,6 +3,7 @@
 进行额外的上色，仅适用于shell"""
 
 import re,json,time
+from typing import Any
 from __main__ import DEBUG,TIMEFORMAT,swd,brs,SavePack
 
 def cbt(n):# 生成颜色操作
@@ -65,14 +66,16 @@ TRTG=C_04# 最前面的那个[]的颜色
 TUSR=C_03# 用户名
 TNUM=C_06# 数字、数量
 TRMI=C_14# 房间号
+TKEY=cfc(27)# key
+TSTR=cfc(28)# string
 
 # 正则表达式
-USER=re.compile("<%(.+?)%>")
+RGPL=re.compile("<%(.+?)%>")
 
-def cuse(m):# 渲染用户颜色
-    return USER.sub(TUSR+"\\1"+CD,m)
+def cuse(m:str):# 渲染用户颜色
+    return RGPL.sub(TUSR+"\\1"+CD,m)
 
-def p(n:str,*d,**t)->None:
+def p(n:str,*d:Any,**t:"print参数")->None:
     print(f"{TRTG}{DB}[{n}]{DF}",*d,DF,**t)
 
 def l_danmu_msg(d):# 弹幕
@@ -183,7 +186,7 @@ def l_common_notice_danmaku(d):# 通知
     for cse in d["content_segments"]:
         cset=cse["type"]
         if cset==1:
-            p("通知",cse["text"])
+            p("通知",RGPL.sub(C_13+"\\1"+CD,cse["text"]))
         elif cset==2:
             p("通知","图片:",f"{DU}{cse.get('img_url')}")
 def l_notice_msg(d):# 公告(广播)
@@ -194,14 +197,14 @@ def l_notice_msg(d):# 公告(广播)
     else:
         p("公告",msg)
 def l_guard_buy(d):# 舰队购买
-    p("礼物",d["username"],"购买了",d["num"],"个",d["gift_name"])
+    p("礼物","{TUSR}{d['username']}{CD} 购买了{TNUM}{d['num']}{CD}个 {d['gift_name']}")
 def l_user_toast_msg(d):# 舰队续费
-    p("提示",d["toast_msg"])
+    p("提示",cuse(d["toast_msg"]))
 def l_widget_banner(d):# 小部件
     for wi in d["widget_list"]:
         if d["widget_list"][wi]is None:
             continue
-        p("小部件",f"key:{wi}","id",d["widget_list"][wi]["id"],"标题:",d["widget_list"][wi]["title"])
+        p("小部件",f"{TKEY}key:{TSTR}{wi}{CD}","id",d["widget_list"][wi]["id"],"标题:",d["widget_list"][wi]["title"])
 def l_super_chat_entrance(d):# 醒目留言入口变化
     if d["status"]==0:
         p("信息","关闭醒目留言入口")
@@ -231,26 +234,36 @@ def l_dm_interaction(d):# 弹幕合并
     n=json.loads(d["data"])
     for c in n["combo"]:
         p("弹幕合并",f"{C_10}{c['guide']}",c["content"],TNUM+"×"+str(c["cnt"]))
+def pk_id_status(d:dict)->str:# 处理pk的id和status
+    return f"{TKEY}id:{TSTR}{d['pk_id']}{CD} {TKEY}s:{TNUM}{d['pk_status']}{CD}"
 def l_pk_battle_pre(d):# PK即将开始
-    p("PK","PK即将开始",f"id:{d['pk_id']}",f"s:{d['pk_status']}",f"对方直播间 {TRMI}{d['data']['room_id']}{CD}","昵称:"+TUSR,d["data"]["uname"])
+    p("PK","PK即将开始",pk_id_status(d),f"对方直播间 {TRMI}{d['data']['room_id']}{CD}","昵称:"+TUSR,d["data"]["uname"])
 def l_pk_battle_start(d):# PK开始
     a=d["data"]
-    p("PK","PK开始",f"id:{d['pk_id']}",f"s:{d['pk_status']}","计数名称:",a["pk_votes_name"],f"增量:{a['pk_votes_add']}")
+    p("PK","PK开始",pk_id_status(d),"计数名称:",a["pk_votes_name"],f"增量:{a['pk_votes_add']}")
 def l_pk_battle_process(d):# PK过程
     a=d["data"]
     i=a["init_info"]
     m=a["match_info"]
-    p("PK","计数更新",f"id:{d['pk_id']}",f"s:{d['pk_status']}",f"直播间{TRMI}{i['room_id']}{CD}已有{TNUM}{i['votes']}{CD}票，直播间{TRMI}{m['room_id']}{CD}已有{TNUM}{m['votes']}{CD}票")
+    p("PK","计数更新",pk_id_status(d),f"直播间{TRMI}{i['room_id']}{CD}已有{TNUM}{i['votes']}{CD}票，直播间{TRMI}{m['room_id']}{CD}已有{TNUM}{m['votes']}{CD}票")
 def l_pk_battle_final_process(d):# PK结束流程变化
-    p("PK","PK结束流程变化",f"id:{d['pk_id']}",f"s:{d['pk_status']}")
+    p("PK","PK结束流程变化",pk_id_status(d))
 def l_pk_battle_end(d):# PK结束
     a=d["data"]
     i=a["init_info"]
     m=a["match_info"]
-    p("PK","PK结束",f"id:{d['pk_id']}",f"s:{d['pk_status']}",f"直播间{TRMI}{i['room_id']}{CD}已有{TNUM}{i['votes']}{CD}票，直播间{TRIM}{m['room_id']}{CD}已有{TNUM}{m['votes']}{CD}票")
+    p("PK","PK结束",pk_id_status(d),f"直播间{TRMI}{i['room_id']}{CD}获得{TNUM}{i['votes']}{CD}票，直播间{TRMI}{m['room_id']}{CD}获得{TNUM}{m['votes']}{CD}票")
 def l_pk_battle_settle_v2(d):# PK结算2
     a=d["data"]
-    p("PK","PK结算",f"id:{d['pk_id']}",f"s:{d['pk_status']}","主播获得",a["result_info"]["pk_votes"],a["result_info"]["pk_votes_name"])
+    p("PK","PK结算",pk_id_status(d),"主播获得",a["result_info"]["pk_votes"],a["result_info"]["pk_votes_name"])
+def l_pk_battle_settle_new(p):# 惩罚
+    p("PK","进入惩罚时间",pk_id_status(p))
+def l_pk_battle_video_punish_begin(p):# 视频惩罚
+    p("PK","进入惩罚时间",pk_id_status(p))
+def l_pk_battle_punish_end(p):# 惩罚结束
+    p("PK","惩罚时间结束",pk_id_status(p))
+def l_pk_battle_video_punish_end(p):# 视频惩罚结束
+    p("PK","惩罚时间结束",pk_id_status(p))
 def l_recommend_card(d,s):# 推荐卡片
     p("广告","推荐卡片","推荐数量:",len(d["recommend_list"]),"更新数量:",len(d["update_list"]))
     if s:
@@ -259,6 +272,8 @@ def l_goto_buy_flow(d):# 购买推荐
     p("广告",d["text"])
 def l_log_in_notice(d):# 登录通知
     print(f"{B_02}{TRTG}[需要登录]{CD}",d["notice_msg"],DF)
+def l_gift_star_process(d):# 礼物星球进度
+    p("提示","礼物星球",f"{TKEY}status:{TNUM}{d['status']}{CD}",d["tip"])
 def l_anchor_lot_checkstatus(d):# 天选时刻审核状态
     p("天选时刻","状态更新",f"id:{d['id']},status:{d['status']},uid:{d['uid']}",f"reject_danmu:{repr(d['reject_danmu'])} reject_reason:{repr(d['reject_reason'])}")
 def l_anchor_lot_start(d):# 天选时刻开始
@@ -267,3 +282,5 @@ def l_anchor_lot_end(d):# 天选时刻结束
     p("天选时刻","id为",d["id"],"的天选时刻已结束")
 def l_anchor_lot_award(d):# 天选时刻开奖
     p("天选时刻",d["award_name"],f"{d['award_num']}人","已开奖",f"id:{d['id']}",f"中奖用户数量{len(d['award_users'])}")
+def l_anchor_normal_notify(d):# 推荐提示
+    p("通知","推荐",f"{TKEY}type:{TNUM}{d['type']}{TKEY},show_type:{TNUM}{d['show_type']}{CD}",d["info"]["content"])

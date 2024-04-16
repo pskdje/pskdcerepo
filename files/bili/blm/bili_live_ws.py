@@ -3,7 +3,7 @@
 使用的第三方库: requests , websockets
 可选的第三方库: brotli
 数据包参考自: https://github.com/SocialSisterYi/bilibili-API-collect/blob/master/live/message_stream.md
-数据分析由我自己进行，请注意时效(更新日期:2024/04/06,新增条目)
+数据分析由我自己进行，请注意时效(更新日期:2024/04/13,新增条目)
 已存在的cmd很难确认是否需要更新
 本文件计划只实现基本功能
 本文件自带一个异常保存功能，出现异常时调用error函数即可。
@@ -27,6 +27,7 @@ UA="Mozilla/5.0 (X11; Linux x86_64; rv:100.0) Gecko/20100101 Firefox/100.0"
 VERSIONINFO=f"""Python/{sys.version.split()[0]}({sys.platform}) requests/{requests.__version__} websockets/{websockets.__version__}{" brotli/"+brotli.version if brotli else""}"""
 starttime=time.time()
 wslog=logging.getLogger("websockets.client")
+wslog.setLevel(logging.DEBUG)
 cumulative_error_count=0
 runoptions=None
 sequence=0
@@ -36,10 +37,9 @@ brs=[]
 test_pack_count={}
 is_importCmdHandle=False
 cmdHandleList=[]
-wslog.setLevel(logging.DEBUG)
+other_args=[]
 
-def error(d=None):
-    # 错误记录
+def error(d=None):# 错误记录
     global cumulative_error_count
     dirpath=Path("bili_live_ws_err")
     filepath=dirpath/f"{time.time_ns()}.txt"
@@ -57,6 +57,7 @@ def error(d=None):
             f.write("\n累计错误数: "+str(cumulative_error_count))
             f.write("\n是否载入额外的处理函数: "+str(is_importCmdHandle))
             f.write("\n被替换的处理函数: "+str(cmdHandleList))
+            f.write("\n其它附加入的参数: "+str(other_args))
             f.write("\n部分参数:\n")
             f.write("\tDEBUG= "+str(DEBUG))
             f.write("\n\tsequence= "+str(sequence))
@@ -83,6 +84,10 @@ def error(d=None):
             print("错误信息已存储至",str(filepath))
     cumulative_error_count+=1
 
+def pr(d):# 打印并返回输入的值。[用于调试]
+    print(d)
+    return d
+
 def bilipack(t,da):
     """返回要发送的数据包\nt: 数据包类型\nda: 数据包内容"""
     global sequence
@@ -105,31 +110,27 @@ def joinroom(id,k,uid=0):
     protover=3 if brotli else 2
     return bilipack(7,json.dumps({"roomid":id,"key":k,"uid":uid,"platform":"web","protover":protover},separators=(",",":")))
 
-def hp():
-    """返回心跳包"""
+def hp():# 返回心跳包
     return bilipack(2,"")
 
-async def hps(ws):
-    """每过30秒发送心跳包"""
+async def hps(ws):# 每过30秒发送一次心跳包
     try:
         while not ws.closed:
             await ws.send(hp())
             await asyncio.sleep(30)
     except(# 捕捉正常关闭时会引发的异常
-           KeyboardInterrupt,
-           websockets.exceptions.ConnectionClosedOK
+        KeyboardInterrupt,
+        websockets.exceptions.ConnectionClosedOK
     ):pass# 忽略
     except Exception:
         error()
 
-def fahp(data):
-    """合并(用于处理人气值)"""
+def fahp(data):# 合并(用于处理人气值)
     if not isinstance(data,bytes):
         raise TypeError("variable 'data' instance not bytes")
     return int.from_bytes(data,"big")
 
-def femsgd(msg):
-    """分割数据包"""
+def femsgd(msg):# 分割数据包
     data=msg.split(b"\0\x10\0\0\0\0\0\x05\0\0\0\0")[1:]
     packlist=[]
     try:
@@ -158,8 +159,7 @@ class SavePack(RuntimeError):
     """用于保存数据包的异常"""
     pass
 
-def savepack(d):
-    # 保存数据包
+def savepack(d):# 保存数据包
     dp=Path("bili_live_ws_pack")
     fp=dp/f"{time.time_ns()}.json"
     if not dp.is_dir():
@@ -167,17 +167,15 @@ def savepack(d):
     with open(fp,"w")as f:
         f.write(json.dumps(d,ensure_ascii=False,indent="\t",sort_keys=False))
 
-def test_pack_add(c):
-    # 对数据包进行计数(理论上能对任何数据进行计数)
+def test_pack_add(c):# 对数据包进行计数(理论上能对任何数据进行计数)
     if c not in test_pack_count:
         test_pack_count[c]=1
     else:
         test_pack_count[c]+=1
 
-def pac(pack,o):
-    # 匹配cmd,处理内容
+def pac(pack,o):# 匹配cmd,处理内容
     cmd=pack["cmd"]
-    if cmd==o.save_cmd:
+    if cmd in o.save_cmd:
         savepack(pack)
     match cmd:
         case "DANMU_MSG":# 弹幕
@@ -287,8 +285,12 @@ def pac(pack,o):
         case "POPULARITY_RED_POCKET_NEW":# 新红包(?)
             if not o.no_popularity_red_pocket_new:
                 l_popularity_red_pocket_new(pack["data"])
+        case "POPULARITY_RED_POCKET_V2_NEW":# 同上，V2
+            pass
         case "POPULARITY_RED_POCKET_START":# 增加屏蔽词(才怪)
             l_popularity_red_pocket_start(pack["data"])
+        case "POPULARITY_RED_POCKET_V2_START":# 同上，V2
+            pass
         case "LIKE_INFO_V3_UPDATE":# 点赞数量
             if not o.no_like_info_update:
                 l_like_info_v3_update(pack["data"])
@@ -304,13 +306,13 @@ def pac(pack,o):
         case "DM_INTERACTION":# 弹幕合并
             if not o.no_dm_interaction:
                 l_dm_interaction(pack["data"])
-        case "PK_BATTLE_PRE"|"PK_BATTLE_PRE_NEW":# PK即将开始
+        case "PK_BATTLE_PRE_NEW":# PK即将开始
             if not o.no_pk_message:
                 l_pk_battle_pre(pack)
-        case "PK_BATTLE_START_NEW"|"PK_BATTLE_START":# PK开始
+        case "PK_BATTLE_START_NEW":# PK开始
             if not o.no_pk_message:
                 l_pk_battle_start(pack)
-        case "PK_BATTLE_PROCESS"|"PK_BATTLE_PROCESS_NEW":# PK过程
+        case "PK_BATTLE_PROCESS_NEW":# PK过程
             if not o.no_pk_message or not o.no_pk_battle_process:
                 l_pk_battle_process(pack)
         case "PK_BATTLE_FINAL_PROCESS":# PK结束流程变化(推测)
@@ -324,6 +326,18 @@ def pac(pack,o):
         case "PK_BATTLE_SETTLE_V2":# PK结算2
             if not o.no_pk_message:
                 l_pk_battle_settle_v2(pack)
+        case "PK_BATTLE_SETTLE_NEW":# pk结算并进入惩罚
+            if not o.no_pk_message:
+                l_pk_battle_settle_new(pack)
+        case "PK_BATTLE_VIDEO_PUNISH_BEGIN":# 同上，数据格式不同
+            if not o.no_pk_message:
+                l_pk_battle_video_punish_begin(pack)
+        case "PK_BATTLE_PUNISH_END":# 惩罚结束
+            if not o.no_pk_message:
+                l_pk_battle_punish_end(pack)
+        case "PK_BATTLE_VIDEO_PUNISH_END":# 同上，少了data部分
+            if not o.no_pk_message:
+                l_pk_battle_video_punish_end(pack)
         case "RECOMMEND_CARD":# 推荐卡片
             if not o.no_recommend_card:
                 l_recommend_card(pack["data"],o.save_recommend_card)
@@ -332,6 +346,9 @@ def pac(pack,o):
                 l_goto_buy_flow(pack["data"])
         case "LOG_IN_NOTICE":# 登录通知
             l_log_in_notice(pack["data"])
+        case "GIFT_STAR_PROCESS":# 礼物星球进度
+            if not o.no_gift_star_process:
+                l_gift_star_process(pack["data"])
         case "ANCHOR_LOT_CHECKSTATUS":# 天选时刻审核状态(?)
             if not o.no_anchor_lot:
                 l_anchor_lot_checkstatus(pack["data"])
@@ -344,10 +361,17 @@ def pac(pack,o):
         case "ANCHOR_LOT_AWARD":# 天选时刻开奖
             if not o.no_anchor_lot:
                 l_anchor_lot_award(pack["data"])
+        case "ANCHOR_NORMAL_NOTIFY":# 推荐提示(推测)
+            if not o.no_anchor_normal_notify:
+                l_anchor_normal_notify(pack["data"])
         case(# 不进行支持
             "HOT_ROOM_NOTIFY"|# 未知，内容会在哔哩哔哩直播播放器日志中显示。
             "WIDGET_GIFT_STAR_PROCESS"|# 礼物星球，不想写支持。
             "PK_BATTLE_SETTLE_USER"|# 不支持原因: 懒
+            "PK_BATTLE_MULTIPLE_BEGIN"|# 看起来是某种pk加倍机制
+            "PK_BATTLE_MULTIPLE_RES"|# 没看懂
+            "POPULARITY_RED_POCKET_WINNER_LIST"|# 看起来好像是得到红包的列表
+            "POPULARITY_RED_POCKET_V2_WINNER_LIST"|# 同上
             "SEND_GIFT_V2"# 礼物第二版(没搞懂意义何在)
         ): test_pack_add(pack["cmd"])
         case _:# 未知命令
@@ -546,8 +570,7 @@ def blocking_rules(f):
         if DEBUG:
             print(brs)
 
-def print_test_pack_count():
-    # 打印数据包计数
+def print_test_pack_count():# 打印数据包计数
     if len(test_pack_count)==0:
         print("无内容")
     for k,v in test_pack_count.items():
@@ -556,6 +579,7 @@ def print_test_pack_count():
 def import_cmd_handle():
     """导入命令处理"""
     global is_importCmdHandle
+    if not runoptions.atirch:return"argument"
     try:
         import cmd_handle as chm
     except ModuleNotFoundError:
@@ -744,10 +768,18 @@ def l_pk_battle_end(d):
     a=d["data"]
     i=a["init_info"]
     m=a["match_info"]
-    print("[PK]","PK结束",f"id:{d['pk_id']}",f"s:{d['pk_status']}","直播间",i["room_id"],"已有",i["votes"],"票，直播间",m["room_id"],"已有",m["votes"],"票")
+    print("[PK]","PK结束",f"id:{d['pk_id']}",f"s:{d['pk_status']}","直播间",i["room_id"],"获得",i["votes"],"票，直播间",m["room_id"],"获得",m["votes"],"票")
 def l_pk_battle_settle_v2(d):
     a=d["data"]
     print("[PK]","PK结算",f"id:{d['pk_id']}",f"s:{d['pk_status']}","主播获得",a["result_info"]["pk_votes"],a["result_info"]["pk_votes_name"])
+def l_pk_battle_settle_new(p):
+    print("[PK]","进入惩罚时间",f"id:{p['pk_id']}",f"s:{p['pk_status']}")
+def l_pk_battle_video_punish_begin(p):
+    print("[PK]","进入惩罚时间",f"id:{p['pk_id']}",f"s:{p['pk_status']}")
+def l_pk_battle_punish_end(p):
+    print("[PK]","惩罚时间结束",f"id:{p['pk_id']}",f"s:{p['pk_status']}")
+def l_pk_battle_video_punish_end(p):
+    print("[PK]","惩罚时间结束",f"id:{p['pk_id']}",f"s:{p['pk_status']}")
 def l_recommend_card(d,s):
     print("[广告]","推荐卡片","推荐数量:",len(d["recommend_list"]),"更新数量:",len(d["update_list"]))
     if s:
@@ -756,6 +788,8 @@ def l_goto_buy_flow(d):
     print("[广告]",d["text"])
 def l_log_in_notice(d):
     print("[需要登录]",d["notice_msg"])
+def l_gift_star_process(d):
+    print("[提示]","礼物星球",f"status:{d['status']}",d["tip"])
 def l_anchor_lot_checkstatus(d):
     print("[天选时刻]","状态更新",f"id:{d['id']},status:{d['status']},uid:{d['uid']}",f"reject_danmu:{repr(d['reject_danmu'])} reject_reason:{repr(d['reject_reason'])}")
 def l_anchor_lot_start(d):
@@ -764,6 +798,8 @@ def l_anchor_lot_end(d):
     print("[天选时刻]","id为",d["id"],"的天选时刻已结束")
 def l_anchor_lot_award(d):
     print("[天选时刻]",d["award_name"],f"{d['award_num']}人","已开奖",f"id:{d['id']}",f"中奖用户数量{len(d['award_users'])}")
+def l_anchor_normal_notify(d):
+    print("[通知]","推荐",f"type:{d['type']},show_type:{d['show_type']}",d["info"]["content"])
 # 命令处理调用处(结束)
 
 def get_SESSDATA(s):# 获取登录会话标识
@@ -784,7 +820,7 @@ def get_SESSDATA(s):# 获取登录会话标识
         return None
     return s
 
-def pararg():
+def pararg(aarg:list|tuple=None)->"Namespace":
     """命令行参数解析"""
     import argparse
     global DEBUG
@@ -802,11 +838,12 @@ def pararg():
     parser.add_argument("--no-auto-import-cmd-handle",help="阻止自动导入额外的命令处理",action="store_false",dest="atirch")
     dbg=parser.add_argument_group("调试功能")
     dbg.add_argument("-u","--save-unknow-datapack",help="保存未知的数据包",action="store_true")
-    dbg.add_argument("--print-pack-count",help="打印数据包计数",action="store_true")
-    dbg.add_argument("--save-cmd",help="保存某个cmd数据包")
+    dbg.add_argument("-C","--print-pack-count",help="打印数据包计数",action="store_true")
+    dbg.add_argument("-s","--save-cmd",help="保存某个cmd数据包",action="append",metavar="CMD",default=[])
     # 关闭一个或多个cmd显示
     cmd=parser.add_argument_group("关闭某个cmd的显示")
     cmd.add_argument("--no-interact-word",help="关闭直播间交互信息",action="store_true")
+    cmd.add_argument("--no-enter-room",help="关闭进入直播间信息。与交互信息关联",action="store_true")
     cmd.add_argument("--no-entry-effect",help="关闭进场信息",action="store_true")
     cmd.add_argument("--no-send-gift",help="关闭礼物信息",action="store_true")
     cmd.add_argument("--no-combo-send",help="关闭组合礼物信息",action="store_true")
@@ -827,7 +864,6 @@ def pararg():
     cmd.add_argument("--no-user-toast-msg",help="关闭续费舰队信息",action="store_true")
     cmd.add_argument("--no-widget-banner",help="关闭小部件信息",action="store_true")
     cmd.add_argument("--no-super-chat-entrance",help="关醒目留言入口信息",action="store_true")
-    cmd.add_argument("--no-enter-room",help="关闭进入直播间信息",action="store_true")
     cmd.add_argument("--no-popularity-red-pocket-new",help="关闭新红包(?)信息",action="store_true")
     cmd.add_argument("--no-like-info-update",help="关闭点赞计数信息",action="store_true")
     cmd.add_argument("--no-popular-rank-changed",help="关闭人气排行更新",action="store_true")
@@ -838,10 +874,35 @@ def pararg():
     cmd.add_argument("--no-recommend-card",help="关闭推荐卡片信息",action="store_true")
     cmd.add_argument("--save-recommend-card",help="保存推荐卡片信息(调试)",action="store_true")
     cmd.add_argument("--no-goto-buy-flow",help="关闭购买推荐商品信息",action="store_true")
+    cmd.add_argument("--no-gift-star-process",help="关闭礼物星球进度信息",action="store_true")
     cmd.add_argument("--no-anchor-lot",help="关闭天选时刻信息",action="store_true")
+    cmd.add_argument("--no-anchor-normal-notify",help="关闭推荐通知信息",action="store_true")
     # 附加功能
     parser.add_argument("-S","--shielding-words",help="屏蔽词(完全匹配)",type=argparse.FileType("rt"),metavar="FILE")
     parser.add_argument("-B","--blocking-rules",help="屏蔽规则",type=argparse.FileType("rt"),metavar="FILE")
+    # 处理其它模块的命令行参数需求
+    def setit(n):# 只可在下面的循环中使用
+        ov=ari.get(n)
+        if ov is None:return
+        aro[n]=ov
+    if isinstance(aarg,(list,tuple)):
+        ota=parser.add_argument_group("其它模块设置的参数")
+        for ari in aarg:
+            if not isinstance(ari,dict):continue
+            arin=ari.get("name")
+            if not isinstance(arin,str):continue
+            if arin[0:2]!="--": arin="--"+arin
+            aro={}# 参数组
+            setit("help")
+            setit("action")
+            setit("const")
+            setit("default")
+            setit("type")
+            setit("choices")
+            setit("metavar")
+            setit("dest")
+            ota.add_argument(arin,**aro)
+            other_args.append(arin)
     args=parser.parse_args()
     runoptions=args
     DEBUG=DEBUG or args.debug
