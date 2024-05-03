@@ -3,11 +3,12 @@
 使用的第三方库: requests , websockets
 可选的第三方库: brotli
 数据包参考自: https://github.com/SocialSisterYi/bilibili-API-collect/blob/master/live/message_stream.md
-数据分析由我自己进行，请注意时效(更新日期:2024/04/13,新增条目)
+数据分析由我自己进行，请注意时效(更新日期:2024/05/03,新增条目)
 已存在的cmd很难确认是否需要更新
 本文件计划只实现基本功能
 本文件自带一个异常保存功能，出现异常时调用error函数即可。
 但要注意：它能记录的信息是有限的，并要尽快记录一些信息。因此，你可能需要自行处理一些信息。
+本文件为了压缩文件大小所以部分结构较为混乱，好孩子不要学。
 """
 
 import sys,os,time,json,re,zlib
@@ -25,7 +26,11 @@ DEBUG=not __debug__
 TIMEFORMAT="%Y/%m/%d-%H:%M:%S"
 UA="Mozilla/5.0 (X11; Linux x86_64; rv:100.0) Gecko/20100101 Firefox/100.0"
 VERSIONINFO=f"""Python/{sys.version.split()[0]}({sys.platform}) requests/{requests.__version__} websockets/{websockets.__version__}{" brotli/"+brotli.version if brotli else""}"""
+LOGDIRPATH=Path("bili_live_ws_log")
 starttime=time.time()
+log=logging.getLogger("bili_live_ms")
+log.setLevel(logging.DEBUG)
+log.addHandler(logging.NullHandler())
 wslog=logging.getLogger("websockets.client")
 wslog.setLevel(logging.DEBUG)
 cumulative_error_count=0
@@ -41,12 +46,16 @@ other_args=[]
 
 def error(d=None):# 错误记录
     global cumulative_error_count
-    dirpath=Path("bili_live_ws_err")
-    filepath=dirpath/f"{time.time_ns()}.txt"
-    if not dirpath.is_dir():
-        dirpath.mkdir()
+    log.exception("[error函数获得了异常]",stack_info=True,stacklevel=2)
+    dp=Path("bili_live_ws_err")
+    fp=dp/f"{time.time_ns()}.txt"
+    if not dp.is_dir():
+        log.info("新建保存错误文件用目录")
+        dp.mkdir()
+    def nsf():# 未成功保存
+        log.exception(f"未成功保存错误文件，文件路径: {fp.resolve()}",stacklevel=2)
     try:
-        with open(filepath,"w")as f:
+        with open(fp,"w")as f:
             f.write("哔哩哔哩直播信息流\n时间: ")
             f.write(time.strftime("%Y/%m/%d-%H:%M:%S%z"))
             f.write("\n是否为执行入口: "+str(__name__=="__main__"))
@@ -69,24 +78,41 @@ def error(d=None):# 错误记录
             f.write("str(exception)=\""+str(sys.exc_info()[1])+"\"\n")
             traceback.print_exc(file=f)
             f.flush()
-            if d!=None:
+            if d is not None:
                 f.write("\n[其它信息]:\n\n"+str(d))
     except PermissionError as e:
+        nsf()
         print("无权限保存异常信息:",e)
     except OSError as e:
+        nsf()
         print("无法保存异常信息")
         print("OSError:",e)
     except:
+        nsf()
         print("写入异常信息到文件失败！")
         traceback.print_exc()
     else:
-        if DEBUG:
-            print("错误信息已存储至",str(filepath))
+        log.debug(f"错误信息已存储至: {fp}")
+        if DEBUG:print("错误信息已存储至",str(fp))
     cumulative_error_count+=1
 
 def pr(d):# 打印并返回输入的值。[用于调试]
     print(d)
     return d
+def bst(b,sep=" "):# 将字节串处理成16进制内容的字符串
+    t=""
+    x=0
+    e=len(b)
+    for i in b:
+        t+="%02X"%i
+        x+=1
+        if x<e: t+=sep
+    return t
+
+def idp(*d,**a):# 处于调试模式时打印传入的内容
+    if not DEBUG:return False
+    print(*d,**a)
+    return True
 
 def bilipack(t,da):
     """返回要发送的数据包\nt: 数据包类型\nda: 数据包内容"""
@@ -114,9 +140,12 @@ def hp():# 返回心跳包
     return bilipack(2,"")
 
 async def hps(ws):# 每过30秒发送一次心跳包
+    def pl(p):
+        log.debug(f"心跳包: {p}",stacklevel=2)
+        return p
     try:
         while not ws.closed:
-            await ws.send(hp())
+            await ws.send(pl(hp()))
             await asyncio.sleep(30)
     except(# 捕捉正常关闭时会引发的异常
         KeyboardInterrupt,
@@ -126,8 +155,7 @@ async def hps(ws):# 每过30秒发送一次心跳包
         error()
 
 def fahp(data):# 合并(用于处理人气值)
-    if not isinstance(data,bytes):
-        raise TypeError("variable 'data' instance not bytes")
+    if not isinstance(data,bytes):raise TypeError("variable 'data' instance not bytes")
     return int.from_bytes(data,"big")
 
 def femsgd(msg):# 分割数据包
@@ -151,7 +179,7 @@ def save_http_error(r:requests.Response,t:str):
     header="header:\n"
     for k,v in r.headers.items():
         header+=f"\t{k}: {v}\n"
-    blw.error(f"info: {t}\nurl: {r.url}"
+    error(f"info: {t}\nurl: {r.url}"
         f"status: {r.status_code} {r.reason}\n"+
         header+"body:\n"+r.text+"\n")
 
@@ -161,11 +189,18 @@ class SavePack(RuntimeError):
 
 def savepack(d):# 保存数据包
     dp=Path("bili_live_ws_pack")
-    fp=dp/f"{time.time_ns()}.json"
+    fn=f"{time.time_ns()}.json"
+    fp=dp/fn
     if not dp.is_dir():
+        log.info("新建保存数据包用目录")
         dp.mkdir()
-    with open(fp,"w")as f:
-        f.write(json.dumps(d,ensure_ascii=False,indent="\t",sort_keys=False))
+    log.debug(f"数据包文件名: {fn}")
+    try:
+        with open(fp,"w")as f:
+            f.write(json.dumps(d,ensure_ascii=False,indent="\t",sort_keys=False))
+    except:
+        error(f"保存数据包时出现错误\n路径: {fp.resolve()}\n数据: {d}")
+        log.warning("保存失败，详细信息已保存至错误文件。")
 
 def test_pack_add(c):# 对数据包进行计数(理论上能对任何数据进行计数)
     if c not in test_pack_count:
@@ -364,6 +399,9 @@ def pac(pack,o):# 匹配cmd,处理内容
         case "ANCHOR_NORMAL_NOTIFY":# 推荐提示(推测)
             if not o.no_anchor_normal_notify:
                 l_anchor_normal_notify(pack["data"])
+        case "SYS_MSG":# 系统消息(推测)
+            if not o.no_sys_msg:
+                l_sys_msg(pack)
         case(# 不进行支持
             "HOT_ROOM_NOTIFY"|# 未知，内容会在哔哩哔哩直播播放器日志中显示。
             "WIDGET_GIFT_STAR_PROCESS"|# 礼物星球，不想写支持。
@@ -373,10 +411,11 @@ def pac(pack,o):# 匹配cmd,处理内容
             "POPULARITY_RED_POCKET_WINNER_LIST"|# 看起来好像是得到红包的列表
             "POPULARITY_RED_POCKET_V2_WINNER_LIST"|# 同上
             "SEND_GIFT_V2"# 礼物第二版(没搞懂意义何在)
-        ): test_pack_add(pack["cmd"])
+        ): test_pack_add(cmd)
         case _:# 未知命令
+            log.debug(f"未支持的cmd: '{cmd}'")
             if not o.no_print_enable:
-                print(f"[支持] 不支持'{pack['cmd']}'命令")
+                print(f"[支持] 不支持'{cmd}'命令")
             if DEBUG or o.save_unknow_datapack:
                 savepack(pack)
 
@@ -384,22 +423,24 @@ def pacs(packlist,o):
     # 将数据包列表遍历发送给pac处理
     # 记录出现异常的数据包
     if packlist is None:
-        if DEBUG:print("数据包处理函数pacs未收到数据包列表")
+        log.warning("未收到数据包列表")
+        idp("数据包处理函数pacs未收到数据包列表")
         return
     this_error_count=0
     for pack in packlist:
         try:
             pac(pack,o)
-        except SavePack:
+        except SavePack as sp:
+            log.debug(f"期望保存数据包，信息: {sp}")
             if DEBUG or o.save_unknow_datapack:
                 savepack(pack)
         except:
             error("出现异常的数据包:\n"+json.dumps(pack,ensure_ascii=False,indent="\t"))
             this_error_count+=1
+            log.info(f"数据包处理时出现异常，当前处理列表发生的错误数: {this_error_count} ，累计错误数: {cumulative_error_count}")
             print("数据错误",file=sys.stderr)
             ie=o.pack_error_no_exit
-            if DEBUG:
-                ie=False
+            if DEBUG: ie=False
             if this_error_count>2:
                 ie=True
                 print("单个处理列表错误次数过多，强制进行关闭")
@@ -410,29 +451,34 @@ def print_rq(rq):# 打印人气值
     hp=fahp(rq)
     txt=str(hp)
     if DEBUG:
-        txt+=" "+str(rq)
+        txt+=" ["+bst(rq,",")+"]"
     if hp==1:
         txt+=" (未开播或不显示)"
     print("[人气]",txt)
+    return hp
 
 async def bililivemsg(url,roomid,o,token,uid):
     """使用提供的参数连接直播间"""
     global hpst
-    if DEBUG:
-        print("连接服务器…")
+    idp("连接服务器…")
     if o.sessdata and not uid:
         print("提示: 使用了sessdata但未提供uid")
     if uid and not o.sessdata:
         print("警告: 使用了uid但未提供sessdata")
+    log.debug("连接服务器; "f"url: {url} ,roomid: {roomid} ,token: '{token}',uid: {uid}")
     async with websockets.connect(url,user_agent_header=UA)as ws:
-        if DEBUG:
-            print("服务器已连接")
-        await ws.send(joinroom(roomid,token,uid))
+        idp("服务器已连接")
+        jrp=joinroom(roomid,token,uid)
+        log.debug(f"认证: {jrp}")
+        await ws.send(jrp)
+        del jrp
         hpst=asyncio.create_task(hps(ws),name="重复发送心跳包")
         async for msg in ws:
             if msg[7]==1 and msg[11]==3:
-                print_rq(msg[16:20])
+                rq=print_rq(msg[16:20])
+                log.debug(f"处理后人气值: {rq}, 原始数据: {msg[16:]}")
             elif msg[7]==1 and msg[11]==8:
+                log.debug(f"认证回复: {msg[16:]}")
                 print("[认证]",msg[16:])
             elif msg[7]==0:
                 pacs(femsgd(msg),o)
@@ -444,19 +490,19 @@ async def bililivemsg(url,roomid,o,token,uid):
                 elif o.no_print_enable:
                     print("[支持] 未安装brotli，无法处理相关数据，请尝试使用其它协议版本。（正常情况下程序会自动切换协议版本，不过由于设备限制，相关代码未测试）")
             else:
-                if o.no_print_enable:
-                    continue
+                log.warning(f"未知的协议版本 {msg[7]}")
+                if o.no_print_enable:continue
                 print("[支持] 未知的协议版本")
-                if DEBUG:
-                    print(msg)
+                idp(msg)
 
 def start(roomid,o):
     """程序入口
 	roomid: 真实房间号
 	o: 命令行解析后参数组"""
     if not isinstance(roomid,int):raise TypeError("roomid不是整数")
-    if DEBUG:
-        print("获取直播信息流地址…")
+    log.debug(f"""WebSocket客户端即将启动，房间号: {roomid}\n版本信息: {VERSIONINFO}\n用户代理: {UA}""")
+    idp("获取直播信息流地址…")
+    log.info("获取信息流地址")
     try:
         r=requests.get(
             "https://api.live.bilibili.com/xlive/web-room/v1/index/getDanmuInfo?id="+str(roomid),
@@ -470,11 +516,13 @@ def start(roomid,o):
         )
     except KeyboardInterrupt:
         print("获取信息操作被中断")
+        log.info("中断键按下，停止获取")
         sys.exit(0)
     except:
         print("获取信息流地址失败:",sys.exc_info()[1])
         error()
         sys.exit(1)
+    log.debug(r.text)
     if r.status_code!=200:
         print("数据获取失败")
         print("HTTP",r.status_code)
@@ -491,12 +539,15 @@ def start(roomid,o):
         print(d["code"],"-",d["message"])
         save_http_error(r,"获取到的code不为0")
         sys.exit(1)
+    ws_host=None
+    log.info("解析数据，连接服务器")
     try:
         u=d["data"]["host_list"][0]
         ws_host=f"{u['host']}:{u['wss_port']}"
         token=d["data"]["token"]
         asyncio.run(bililivemsg(f"wss://{ws_host}/sub",roomid,o,token,o.uid))
     except websockets.exceptions.ConnectionClosedError as e:
+        log.warning("连接关闭: "+str(e))
         error()
         print("连接关闭:",e)
         if (o.sessdata or o.uid) and time.time()-starttime<10:
@@ -507,29 +558,47 @@ def start(roomid,o):
         print("信息错误:",e)
         sys.exit(1)
     except TimeoutError:
+        log.warning("超时")
         error()
         print("内部超时")
         print("请检查网络是否通畅。")
         sys.exit(errno.ETIMEDOUT)
     except OSError as e:
+        log.critical("出现OS异常!")
         error()
         print("出现OS异常，详细信息请查看错误记录文件。")
         print("可以先检查一下网络。大部分异常都由网络问题引起的。")
         sys.exit(e.errno)
     except Exception:
+        log.critical(f"出现异常! ws_host: {ws_host}")
         error("捕捉函数 bililivemsg 抛出的异常\n"f"WebSocket Server: {ws_host}"f"\nroomid: {roomid}\ntoken: {token}")
         print("=出现内部异常=\n请查看错误记录文件自行排除问题或在你获取本文件的git仓库开一个issue。")
         print("开issus请检查是否有相同的问题，若有就附加上去。记得附上错误文件，也不要忘记检查是否有敏感信息。")
         print("若使用登录信息，请将错误文件中命令行选项内的sessdata替换为'SESSDATA'字符串，切勿改成None，否则无法确定是否为登录时发生的问题。")
         print("uid也不要替换为0，随便一个正数。如果uid为0，这边会更偏向于没有正确使用参数导致出现问题。")
         sys.exit(1)
+    except KeyboardInterrupt:
+        log.info("中断键按下，停止运行")
+        log.debug(f"数据包计数: {test_pack_count}")
+        raise
 
+def set_logpath():# 日志路径
+    p=LOGDIRPATH
+    if not p.is_dir():
+        log.info("新建保存日志用目录")
+        p.mkdir()
+def set_log():# 保存运行日志
+    import logging.handlers
+    set_logpath()
+    h=logging.handlers.RotatingFileHandler(LOGDIRPATH/"ms.log",maxBytes=2097152,backupCount=3)
+    h.setLevel(logging.DEBUG)
+    h.setFormatter(logging.Formatter("{asctime} [{levelname}] '{filename}' {funcName}: {message}",style="{"))
+    log.addHandler(h)
 def set_wslog():# 保存ws客户端日志
     import logging.handlers
-    rp=Path("bili_live_ws_log")
-    if not rp.is_dir():
-        rp.mkdir()
-    h=logging.handlers.RotatingFileHandler(rp/"ws.log",maxBytes=1024*1024*2,backupCount=6)
+    set_logpath()
+    if wslog.hasHandlers():return
+    h=logging.handlers.RotatingFileHandler(LOGDIRPATH/"ws.log",maxBytes=2097152,backupCount=3)
     h.setLevel(logging.DEBUG)
     h.setFormatter(logging.Formatter("{asctime} {levelname}: {message}",style="{"))
     wslog.addHandler(h)
@@ -541,62 +610,65 @@ def shielding_words(f):
     try:
         for l in f:
             t=l.rstrip("\r\n")
-            if t:
-                if t[0]=="#":
-                    continue
-                swd.append(t)
+            if not t:continue
+            if t[0]=="#":continue
+            swd.append(t)
     except:
         print("处理屏蔽词时出现错误",file=sys.stderr)
         error()
     finally:
         f.close()
-        if DEBUG:
-            print(swd)
+        log.debug(f"屏蔽词: {swd}")
+        idp(swd)
 def blocking_rules(f):
     """屏蔽规则"""
     print("解析屏蔽规则…")
     try:
         for l in f:
             t=l.rstrip("\r\n")
-            if t:
-                if t[0]=="#":
-                    continue
-                brs.append(re.compile(t))
+            if not t:continue
+            if t[0]=="#":continue
+            brs.append(re.compile(t))
     except:
         print("处理屏蔽规则时出现错误",file=sys.stderr)
         error()
     finally:
         f.close()
-        if DEBUG:
-            print(brs)
+        log.debug(f"屏蔽规则: {brs}")
+        idp(brs)
 
 def print_test_pack_count():# 打印数据包计数
-    if len(test_pack_count)==0:
+    cn=test_pack_count
+    if len(cn)==0:
         print("无内容")
-    for k,v in test_pack_count.items():
+    for k,v in cn.items():
         print("cmd",k,"计数",v)
 
 def import_cmd_handle():
     """导入命令处理"""
     global is_importCmdHandle
     if not runoptions.atirch:return"argument"
+    log.info("进行'导入命令处理'操作")
     try:
         import cmd_handle as chm
     except ModuleNotFoundError:
+        log.info("不存在额外的处理模块")
         return"not_found"
     except ImportError as e:
         error()
+        log.warning("导入额外的命令处理失败")
         return"import_error"
-    if DEBUG:print("存在cmd_handle模块，已导入。")
+    idp("存在cmd_handle模块，已导入。")
     for chn in dir(chm):
         if chn[0:2]!="l_":continue# 必须要以"l_"开头
         ch=getattr(chm,chn,None)
         if not callable(ch):continue
         globals()[chn]=ch
         cmdHandleList.append(chn)
-    else:
         is_importCmdHandle=True
+    else:
         print("检测到存在额外的命令处理，已自动导入并替换对应处理函数。")
+    log.debug(f"替换列表: {cmdHandleList}")
     if DEBUG:
         print("是否载入函数:",is_importCmdHandle)
         print("被替换的函数:",cmdHandleList)
@@ -604,11 +676,9 @@ def import_cmd_handle():
 
 # 命令处理调用处(开始)
 def l_danmu_msg(d):
-    if d[1]in swd:
-        return
+    if d[1]in swd:return
     for b in brs:
-        if b.search(d[1]):
-            return
+        if b.search(d[1]):return
     print("[弹幕]",f"{d[2][1]}:",d[1])
 def l_interact_word(d,o):
     info="[交互]"
@@ -622,8 +692,10 @@ def l_interact_word(d,o):
     elif mt==3:
         print(info,nm,"分享直播间")
     else:
+        t=f"未知的交互类型: {d['msg_type']}"
+        log.debug(t)
         if not o.no_print_enable:
-            print("[支持]","未知的交互类型:",d["msg_type"])
+            print("[支持]",t)
         raise SavePack("未知的交换类型")
 def l_entry_effect(d):
     print("[进场]",d["copy_writing"])
@@ -641,11 +713,9 @@ def l_super_chat_message(d):
 def l_super_chat_message_delete(d):
     print("[留言]","醒目留言删除:",d["data"]["ids"])
 def l_live_interactive_game(d):
-    if d["msg"]in swd:
-        return
+    if d["msg"]in swd:return
     for b in brs:
-        if b.search(d["msg"]):
-            return
+        if b.search(d["msg"]):return
     print("[弹幕](LIG)",f"{d['uname']}:",d["msg"])
 def l_room_change(d):
     print("[直播]","分区:",d["parent_area_name"],">",d["area_name"],",标题:",d["title"])
@@ -689,7 +759,8 @@ def l_voice_join_status(d):
     elif d["status"]==1:
         print("[连麦]","正在与",d["user_name"],"连麦")
     else:
-        raise SavePack("未知状态")
+        log.debug(f"未知的语音状态: {d['status']}")
+        raise SavePack("未知的语音连麦状态")
 def l_online_rank_v2(d,npe):
     rt=d["rank_type"]
     if rt=="gold-rank":
@@ -697,9 +768,11 @@ def l_online_rank_v2(d,npe):
     elif rt=="online_rank":
         print("[排行]","高能用户部分列表:",f"len({len(d['online_list'])})")
     else:
+        nt="未知的排行类型"
+        log.debug(f"{nt}: '{d['rank_type']}'")
         if not npe:
-            print("[支持]","未知的排行类型:",d["rank_type"])
-        raise SavePack("未知的排行类型")
+            print("[支持]",nt+":",d["rank_type"])
+        raise SavePack(nt)
 def l_hot_rank_settlement(d):
     print("[排行]",d["dm_msg"])
 def l_common_notice_danmaku(d):
@@ -709,6 +782,9 @@ def l_common_notice_danmaku(d):
             print("[通知]",cse["text"])
         elif cset==2:
             print("[通知]","图片:",cse.get("img_url"))
+        else:
+            log.debug(f"未知的通知组件类型: {cset}")
+            raise SavePack("通知组件类型")
 def l_notice_msg(d):
     if "name"in d:
         print("[公告]",d["name"],"=>",d["msg_self"])
@@ -720,13 +796,13 @@ def l_user_toast_msg(d):
     print("[提示]",d["toast_msg"])
 def l_widget_banner(d):
     for wi in d["widget_list"]:
-        if d["widget_list"][wi]is None:
-            continue
+        if d["widget_list"][wi]is None:continue
         print("[小部件]",f"key:{wi}","id",d["widget_list"][wi]["id"],"标题:",d["widget_list"][wi]["title"])
 def l_super_chat_entrance(d):
     if d["status"]==0:
         print("[信息]","关闭醒目留言入口")
     else:
+        log.debug(f"status: {d['status']}")
         print("[支持]","未知的'SUPER_CHAT_ENTRANCE'status数字:",d["status"])
         print("因为样本稀少，暂不提供屏蔽该不支持信息")
         raise SavePack("未知的status")
@@ -782,8 +858,7 @@ def l_pk_battle_video_punish_end(p):
     print("[PK]","惩罚时间结束",f"id:{p['pk_id']}",f"s:{p['pk_status']}")
 def l_recommend_card(d,s):
     print("[广告]","推荐卡片","推荐数量:",len(d["recommend_list"]),"更新数量:",len(d["update_list"]))
-    if s:
-        raise SavePack("保存推荐卡片")
+    if s:raise SavePack("保存推荐卡片")
 def l_goto_buy_flow(d):
     print("[广告]",d["text"])
 def l_log_in_notice(d):
@@ -800,6 +875,8 @@ def l_anchor_lot_award(d):
     print("[天选时刻]",d["award_name"],f"{d['award_num']}人","已开奖",f"id:{d['id']}",f"中奖用户数量{len(d['award_users'])}")
 def l_anchor_normal_notify(d):
     print("[通知]","推荐",f"type:{d['type']},show_type:{d['show_type']}",d["info"]["content"])
+def l_sys_msg(p):
+    print("[系统消息]",p["msg"])
 # 命令处理调用处(结束)
 
 def get_SESSDATA(s):# 获取登录会话标识
@@ -820,7 +897,7 @@ def get_SESSDATA(s):# 获取登录会话标识
         return None
     return s
 
-def pararg(aarg:list|tuple=None)->"Namespace":
+def pararg(aarg:list[dict]|tuple[dict,...]=None)->"argparse.Namespace":
     """命令行参数解析"""
     import argparse
     global DEBUG
@@ -877,6 +954,7 @@ def pararg(aarg:list|tuple=None)->"Namespace":
     cmd.add_argument("--no-gift-star-process",help="关闭礼物星球进度信息",action="store_true")
     cmd.add_argument("--no-anchor-lot",help="关闭天选时刻信息",action="store_true")
     cmd.add_argument("--no-anchor-normal-notify",help="关闭推荐通知信息",action="store_true")
+    cmd.add_argument("--no-sys-msg",help="关闭系统消息信息",action="store_true")
     # 附加功能
     parser.add_argument("-S","--shielding-words",help="屏蔽词(完全匹配)",type=argparse.FileType("rt"),metavar="FILE")
     parser.add_argument("-B","--blocking-rules",help="屏蔽规则",type=argparse.FileType("rt"),metavar="FILE")
@@ -886,6 +964,7 @@ def pararg(aarg:list|tuple=None)->"Namespace":
         if ov is None:return
         aro[n]=ov
     if isinstance(aarg,(list,tuple)):
+        log.debug("其它模块设置参数:")
         ota=parser.add_argument_group("其它模块设置的参数")
         for ari in aarg:
             if not isinstance(ari,dict):continue
@@ -901,10 +980,11 @@ def pararg(aarg:list|tuple=None)->"Namespace":
             setit("choices")
             setit("metavar")
             setit("dest")
-            ota.add_argument(arin,**aro)
+            log.debug(str(ota.add_argument(arin,**aro)))
             other_args.append(arin)
     args=parser.parse_args()
     runoptions=args
+    log.debug(f"命令行参数: {args}")
     DEBUG=DEBUG or args.debug
     return args
 
@@ -914,6 +994,7 @@ def main():# 启动
         print("版本信息:",VERSIONINFO)
         print("命令行选项:",args)
         print("启动时间戳:",starttime)
+        set_log()
         set_wslog()
     roomid=args.roomid
     print("直播间ID:",roomid)
@@ -923,7 +1004,7 @@ def main():# 启动
         blocking_rules(args.blocking_rules)
     if args.atirch:
         r_ich=import_cmd_handle()
-        if DEBUG:print("导入命令处理的结果:",r_ich)
+        idp("导入命令处理的结果:",r_ich)
     print("连接直播间…")
     try:
         start(roomid,args)
@@ -935,4 +1016,5 @@ def main():# 启动
         sys.exit(0)
 if __name__=="__main__":
     print("=[哔哩哔哩直播信息流]=")
+    log.info("文件已作为顶层入口")
     main()

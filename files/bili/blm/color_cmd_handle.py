@@ -1,10 +1,15 @@
 """额外的命令处理
 由bili_live_ws.py的命令处理调用处派生而来
-进行额外的上色，仅适用于shell"""
+进行额外的上色，仅适用于shell
+并不是所有的shell都支持这些颜色，在使用前请先确认你的终端是否支持对应颜色"""
 
 import re,json,time
 from typing import Any
-from __main__ import DEBUG,TIMEFORMAT,swd,brs,SavePack
+from __main__ import DEBUG,TIMEFORMAT,log,swd,brs,SavePack
+try:
+    from __main__ import ls_uid
+except ImportError:
+    ls_uid=0
 
 def cbt(n):# 生成颜色操作
     return f"\33[{n}m"
@@ -85,9 +90,10 @@ def l_danmu_msg(d):# 弹幕
         if b.search(d[1]):
             return
     tc=""
+    if ls_uid==d[2][0]:
+        tc+=f"{C_01}(主播){CD}"
     if d[2][2]==1:
-        tc+=f"{C_13}(房管){CD}"
-    # tc+=f"{C_01}(主播){CD}"
+        tc+=f"{C_13}(房){CD}"
     p("弹幕",f"{tc}{TUSR}{d[2][1]}{CD}:{C_07}",d[1])
 def l_interact_word(d,o):# 交互
     info="交互"
@@ -101,8 +107,10 @@ def l_interact_word(d,o):# 交互
     elif mt==3:
         p(info,nm,"分享直播间")
     else:
+        t=f"未知的交互类型: {d['msg_type']}"
+        log.debug(t)
         if not o.no_print_enable:
-            p("支持","未知的交互类型:",d["msg_type"])
+            p("支持",t)
         raise SavePack("未知的交换类型")
 def l_entry_effect(d):# 进场
     p("进场",cuse(d["copy_writing"]))
@@ -112,7 +120,7 @@ def l_combo_send(d):# 组合礼物
     p("礼物",f'{TUSR}{d["uname"]}{CD}',d["action"],d["gift_name"],TNUM+"×",d["total_num"])
 def l_watched_change(d):# 看过
     if DEBUG:
-        p("观看",f"{TNUM}{d['num']}{CD} 人看过;","text_large:",d["text_large"])
+        p("观看",f"{TNUM}{d['num']}{CD} 人看过; {TKEY}text_large: {TSTR}{d['text_large']}")
     else:
         p("观看",f"{TNUM}{d['num']}{CD} 人看过")
 def l_super_chat_message(d):# 醒目留言
@@ -160,16 +168,17 @@ def l_voice_join_list(d):# 连麦列表
 def l_online_rank_top3(d):# 前三个第一次成为高能用户
     ts=d["list"][0]
     if DEBUG:
-        p("排行",f"len({len(d['list'])}) {cuse(ts['msg'])} rank:{ts['rank']}")
+        p("排行",f"len({len(d['list'])}) {cuse(ts['msg'])} {TKEY}rank:{TNUM}{ts['rank']}")
     else:
-        p("排行",f"{cuse(ts['msg'])} rank:{TNUM}{ts['rank']}")
+        p("排行",f"{cuse(ts['msg'])} {TKEY}rank:{TNUM}{ts['rank']}")
 def l_voice_join_status(d):# 连麦状态
     if d["status"]==0:
         p("连麦","停止连麦")
     elif d["status"]==1:
         p("连麦","正在与"+TUSR,d["user_name"],CD+"连麦")
     else:
-        raise SavePack("未知状态")
+        log.debug(f"未知的语音状态: {d['status']}")
+        raise SavePack("未知的语音连麦状态")
 def l_online_rank_v2(d,npe):
     rt=d["rank_type"]
     if rt=="gold-rank":
@@ -177,9 +186,11 @@ def l_online_rank_v2(d,npe):
     elif rt=="online_rank":
         p("排行","高能用户部分列表:",f"len({len(d['online_list'])})")
     else:
+        nt="未知的排行类型"
+        log.debug(f"{nt}: '{d['rank_type']}'")
         if not npe:
-            p("支持","未知的排行类型:",d["rank_type"])
-        raise SavePack("未知的排行类型")
+            p("支持",nt+":",d["rank_type"])
+        raise SavePack(nt)
 def l_hot_rank_settlement(d):
     p("排行",d["dm_msg"])
 def l_common_notice_danmaku(d):# 通知
@@ -189,6 +200,10 @@ def l_common_notice_danmaku(d):# 通知
             p("通知",RGPL.sub(C_13+"\\1"+CD,cse["text"]))
         elif cset==2:
             p("通知","图片:",f"{DU}{cse.get('img_url')}")
+        else:
+            p("通知",C_07+DI+"无法展示的通知组件")
+            log.debug(f"未知的通知组件类型: {cset}")
+            raise SavePack("通知组件类型")
 def l_notice_msg(d):# 公告(广播)
     msg=d["msg_self"]
     msg=cuse(msg)
@@ -197,7 +212,7 @@ def l_notice_msg(d):# 公告(广播)
     else:
         p("公告",msg)
 def l_guard_buy(d):# 舰队购买
-    p("礼物","{TUSR}{d['username']}{CD} 购买了{TNUM}{d['num']}{CD}个 {d['gift_name']}")
+    p("礼物",f"{TUSR}{d['username']}{CD} 购买了{TNUM}{d['num']}{CD}个 {d['gift_name']}")
 def l_user_toast_msg(d):# 舰队续费
     p("提示",cuse(d["toast_msg"]))
 def l_widget_banner(d):# 小部件
@@ -209,15 +224,16 @@ def l_super_chat_entrance(d):# 醒目留言入口变化
     if d["status"]==0:
         p("信息","关闭醒目留言入口")
     else:
-        p("支持","未知的'SUPER_CHAT_ENTRANCE'status数字:",d["status"])
+        log.debug(f"status: {d['status']}")
+        p("支持",f"未知的'SUPER_CHAT_ENTRANCE'{TKEY}status{CD}数字:{TNUM}",d["status"])
         print(DB+DI+"因为样本稀少，暂不提供屏蔽该不支持信息"+DF)
         raise SavePack("未知的status")
 def l_room_skin_msg(d):# 直播间皮肤更新
-    p("信息","直播间皮肤更新","id:",d["skin_id"],",status:",d["status"],",结束时间:",time.strftime(TIMEFORMAT,time.gmtime(d["end_time"])),",当前时间:",time.strftime(TIMEFORMAT,time.gmtime(d["current_time"])))
+    p("信息","直播间皮肤更新",f"{TKEY}id: {TSTR}{d['skin_id']}{CD} ,{TKEY}status: {TSTR}{d['status']}{CD}",",结束时间:",time.strftime(TIMEFORMAT,time.gmtime(d["end_time"])),",当前时间:",time.strftime(TIMEFORMAT,time.gmtime(d["current_time"])))
 def l_live_multi_view_change(d):
     p("信息","LIVE_MULTI_VIEW_CHANGE",d)
 def l_popularity_red_pocket_new(d):
-    p("通知",d["uname"],d["action"],"价值",d["price"],"电池的",d["gift_name"])
+    p("通知",f"{TUSR}{d['uname']}{CD} {d['action']} 价值 {TNUM}{d['price']}{CD} 电池的 {d['gift_name']}")
 def l_popularity_red_pocket_start(d):
     if d["danmu"]not in swd:
         swd.append(d["danmu"])
@@ -284,3 +300,5 @@ def l_anchor_lot_award(d):# 天选时刻开奖
     p("天选时刻",d["award_name"],f"{d['award_num']}人","已开奖",f"id:{d['id']}",f"中奖用户数量{len(d['award_users'])}")
 def l_anchor_normal_notify(d):# 推荐提示
     p("通知","推荐",f"{TKEY}type:{TNUM}{d['type']}{TKEY},show_type:{TNUM}{d['show_type']}{CD}",d["info"]["content"])
+def l_sys_msg(p):
+    p("系统消息",p["msg"])
