@@ -3,7 +3,6 @@
 --no-entry-effect
 --no-watched-change
 --no-stop-live-room-list
---no-hot-rank-changed
 --no-online-rank-count
 --no-voice-join-list
 --no-voice-join-status
@@ -21,3 +20,4 @@
 --no-goto-buy-flow
 --no-anchor-lot
 --no-anchor-normal-notify
+--no-play-tag

@@ -3,7 +3,7 @@
 使用的第三方库: requests , websockets
 可选的第三方库: brotli
 数据包参考自: https://github.com/SocialSisterYi/bilibili-API-collect/blob/master/live/message_stream.md
-数据分析由我自己进行，请注意时效(更新日期:2024/05/03,新增条目)
+数据分析由我自己进行，请注意时效(更新日期:2024/08/06,新增条目)
 已存在的cmd很难确认是否需要更新
 本文件计划只实现基本功能
 本文件自带一个异常保存功能，出现异常时调用error函数即可。
@@ -24,7 +24,7 @@ except ImportError:
 
 DEBUG=not __debug__
 TIMEFORMAT="%Y/%m/%d-%H:%M:%S"
-UA="Mozilla/5.0 (X11; Linux x86_64; rv:100.0) Gecko/20100101 Firefox/100.0"
+UA="Mozilla/5.0 (X11; Linux x86_64; rv:125.0) Gecko/20100101 Firefox/125.0"
 VERSIONINFO=f"""Python/{sys.version.split()[0]}({sys.platform}) requests/{requests.__version__} websockets/{websockets.__version__}{" brotli/"+brotli.version if brotli else""}"""
 LOGDIRPATH=Path("bili_live_ws_log")
 starttime=time.time()
@@ -212,6 +212,8 @@ def pac(pack,o):# 匹配cmd,处理内容
     cmd=pack["cmd"]
     if cmd in o.save_cmd:
         savepack(pack)
+    if cmd in o.count_cmd:
+        test_pack_add(cmd)
     match cmd:
         case "DANMU_MSG":# 弹幕
             l_danmu_msg(pack["info"])
@@ -260,14 +262,9 @@ def pac(pack,o):# 匹配cmd,处理内容
             l_room_lock(pack)
         case "ROOM_ADMINS":# 房管列表
             l_room_admins(pack)
-        case "DANMU_AGGREGATION":# 弹幕聚集(?)
-            pass
-        case "HOT_RANK_CHANGED":# 当前直播间的排行
-            test_pack_add(cmd)# 该功能可能被替代，确认一下
-            if not o.no_hot_rank_changed:
-                l_hot_rank_changed(pack["data"])
-        case "HOT_RANK_CHANGED_V2":
-            test_pack_add(cmd)
+        case "DANMU_AGGREGATION":# 弹幕聚集
+            if not o.no_danmu_aggregation:
+                l_danmu_aggregation(pack["data"])
         case "ONLINE_RANK_COUNT":# 在线计数
             if not o.no_online_rank_count:
                 l_online_rank_count(pack["data"])
@@ -318,7 +315,7 @@ def pac(pack,o):# 匹配cmd,处理内容
         case "LIVE_MULTI_VIEW_CHANGE":
             l_live_multi_view_change(pack["data"])
         case "POPULARITY_RED_POCKET_NEW":# 新红包(?)
-            if not o.no_popularity_red_pocket_new:
+            if not o.no_popularity_red_pocket:
                 l_popularity_red_pocket_new(pack["data"])
         case "POPULARITY_RED_POCKET_V2_NEW":# 同上，V2
             pass
@@ -338,7 +335,7 @@ def pac(pack,o):# 匹配cmd,处理内容
         case "AREA_RANK_CHANGED":# 大航海排行更新
             if not o.no_area_rank_changed:
                 l_area_rank_changed(pack["data"])
-        case "DM_INTERACTION":# 弹幕合并
+        case "DM_INTERACTION":# 交互合并
             if not o.no_dm_interaction:
                 l_dm_interaction(pack["data"])
         case "PK_BATTLE_PRE_NEW":# PK即将开始
@@ -381,6 +378,9 @@ def pac(pack,o):# 匹配cmd,处理内容
                 l_goto_buy_flow(pack["data"])
         case "LOG_IN_NOTICE":# 登录通知
             l_log_in_notice(pack["data"])
+        case "GUARD_HONOR_THOUSAND":# 千舰主播增减
+            if not o.no_guard_honor_thousand:
+                l_guard_honor_thousand(pack["data"])
         case "GIFT_STAR_PROCESS":# 礼物星球进度
             if not o.no_gift_star_process:
                 l_gift_star_process(pack["data"])
@@ -399,9 +399,15 @@ def pac(pack,o):# 匹配cmd,处理内容
         case "ANCHOR_NORMAL_NOTIFY":# 推荐提示(推测)
             if not o.no_anchor_normal_notify:
                 l_anchor_normal_notify(pack["data"])
+        case "POPULAR_RANK_GUIDE_CARD":
+            if not o.no_popular_rank_guide_card:
+                l_popular_rank_guide_card(pack["data"])
         case "SYS_MSG":# 系统消息(推测)
             if not o.no_sys_msg:
                 l_sys_msg(pack)
+        case "PLAY_TAG":# 直播进度条节点标签
+            if not o.no_play_tag:
+                l_play_tag(pack["data"])
         case(# 不进行支持
             "HOT_ROOM_NOTIFY"|# 未知，内容会在哔哩哔哩直播播放器日志中显示。
             "WIDGET_GIFT_STAR_PROCESS"|# 礼物星球，不想写支持。
@@ -726,7 +732,7 @@ def l_preparing(p):
 def l_room_real_time_message_update(d):
     print("[信息]",d["roomid"],"直播间",d["fans"],"粉丝")
 def l_stop_live_room_list(d):
-    print("[停播]","停止直播的房间列表:",f"len({len(d['room_id_list'])})")
+    pass
 def l_room_block_msg(p):
     print("[直播]","用户",p["uname"],"已被禁言")
 def l_cut_off(p):
@@ -735,13 +741,13 @@ def l_room_lock(p):
     print("[直播]","直播间",p["roomid"],"被封禁，解除时间:",p["expire"])
 def l_room_admins(p):
     print("[直播]",f"房管列表: len({len(p['uids'])})")
-def l_hot_rank_changed(d):
-    print("[排行]",d["area_name"],"第",d["rank"],"名")
 def l_online_rank_count(d):
     olc=""
     if "online_count"in d:
         olc="在线计数: "+str(d["online_count"])
     print("[计数]","高能用户计数:",d["count"],olc)
+def l_danmu_aggregation(d):
+    pass
 def l_little_tips(d):
     print("[提示]",d["msg"])
 def l_little_message_box(d):
@@ -762,17 +768,7 @@ def l_voice_join_status(d):
         log.debug(f"未知的语音状态: {d['status']}")
         raise SavePack("未知的语音连麦状态")
 def l_online_rank_v2(d,npe):
-    rt=d["rank_type"]
-    if rt=="gold-rank":
-        print("[排行]","高能用户部分列表(gr):",f"len({len(d['list'])})")
-    elif rt=="online_rank":
-        print("[排行]","高能用户部分列表:",f"len({len(d['online_list'])})")
-    else:
-        nt="未知的排行类型"
-        log.debug(f"{nt}: '{d['rank_type']}'")
-        if not npe:
-            print("[支持]",nt+":",d["rank_type"])
-        raise SavePack(nt)
+    pass
 def l_hot_rank_settlement(d):
     print("[排行]",d["dm_msg"])
 def l_common_notice_danmaku(d):
@@ -810,6 +806,7 @@ def l_room_skin_msg(d):
     print("[信息]","直播间皮肤更新","id:",d["skin_id"],",status:",d["status"],",结束时间:",time.strftime(TIMEFORMAT,time.gmtime(d["end_time"])),",当前时间:",time.strftime(TIMEFORMAT,time.gmtime(d["current_time"])))
 def l_live_multi_view_change(d):
     print("[信息]","LIVE_MULTI_VIEW_CHANGE",d)
+    raise SavePack("未知数据包")
 def l_popularity_red_pocket_new(d):
     print("[通知]",d["uname"],d["action"],"价值",d["price"],"电池的",d["gift_name"])
 def l_popularity_red_pocket_start(d):
@@ -825,9 +822,19 @@ def l_popular_rank_changed(d):
 def l_area_rank_changed(d):
     print("[排行]",d["rank_name"],"第",d["rank"],"名")
 def l_dm_interaction(d):
+    p="[交互合并]"
     n=json.loads(d["data"])
-    for c in n["combo"]:
-        print("[弹幕合并]",c["guide"],c["content"],"×"+str(c["cnt"]))
+    t=d["type"]
+    if t==102:
+        for c in n["combo"]:
+            print(p,c["guide"],c["content"],"×"+str(c["cnt"]))
+    elif t==104:
+        print(p,n["cnt"],n["suffix_text"],"gift_id:",n["gift_id"])
+    elif t==103 or t==105 or t==106:
+        print(p,n["cnt"],n["suffix_text"])
+    else:
+        log.debug(f"未知的交互合并类型: {t}")
+        raise SavePack("交互合并类型")
 def l_pk_battle_pre(d):
     print("[PK]","PK即将开始",f"id:{d['pk_id']}",f"s:{d['pk_status']}","对方直播间",d["data"]["room_id"],"昵称:",d["data"]["uname"])
 def l_pk_battle_start(d):
@@ -863,10 +870,12 @@ def l_goto_buy_flow(d):
     print("[广告]",d["text"])
 def l_log_in_notice(d):
     print("[需要登录]",d["notice_msg"])
+def l_guard_honor_thousand(d):
+    pass
 def l_gift_star_process(d):
     print("[提示]","礼物星球",f"status:{d['status']}",d["tip"])
 def l_anchor_lot_checkstatus(d):
-    print("[天选时刻]","状态更新",f"id:{d['id']},status:{d['status']},uid:{d['uid']}",f"reject_danmu:{repr(d['reject_danmu'])} reject_reason:{repr(d['reject_reason'])}")
+    print("[天选时刻]","状态更新",f"id:{d['id']},status:{d['status']},uid:{d['uid']}")
 def l_anchor_lot_start(d):
     print("[天选时刻]",d["award_name"],f"{d['award_num']}人",f'''发送"{d['danmu']}"参与,需要"{d['require_text']}"''',f"id:{d['id']}",f"最大时间{d['max_time']}秒,剩余{d['time']}秒")
 def l_anchor_lot_end(d):
@@ -875,8 +884,15 @@ def l_anchor_lot_award(d):
     print("[天选时刻]",d["award_name"],f"{d['award_num']}人","已开奖",f"id:{d['id']}",f"中奖用户数量{len(d['award_users'])}")
 def l_anchor_normal_notify(d):
     print("[通知]","推荐",f"type:{d['type']},show_type:{d['show_type']}",d["info"]["content"])
+def l_popular_rank_guide_card(d):
+    h="[提示]"
+    print(h,d["title"])
+    print(h,d["sub_text"])
+    print(h,d["popup_title"])
 def l_sys_msg(p):
     print("[系统消息]",p["msg"])
+def l_play_tag(d):
+    print("[直播]","进度条标签",f"id:{d['tag_id']} 时间戳:{d['timestamp']} 类型: {d['type']}")
 # 命令处理调用处(结束)
 
 def get_SESSDATA(s):# 获取登录会话标识
@@ -904,8 +920,9 @@ def pararg(aarg:list[dict]|tuple[dict,...]=None)->"argparse.Namespace":
     global runoptions
     if runoptions:
         raise RuntimeError("检测到已进行过一次命令行参数获取")
-    desc="哔哩哔哩直播信息流处理\n允许使用@来引入参数文件"
-    parser=argparse.ArgumentParser(usage="%(prog)s [options] roomid",description=desc,formatter_class=argparse.RawDescriptionHelpFormatter,fromfile_prefix_chars="@")
+    desc="哔哩哔哩直播信息流处理\n允许使用@来引入参数文件\n默认在文件夹下会附带bili_live_ws.md来提供额外信息"
+    epil="关于登录信息的使用可查看md的参数部分。"
+    parser=argparse.ArgumentParser(usage="%(prog)s [options] roomid",description=desc,epilog=epil,formatter_class=argparse.RawDescriptionHelpFormatter,fromfile_prefix_chars="@")
     parser.add_argument("roomid",help="直播间ID",type=int,default=23058)
     parser.add_argument("-d","--debug",help="开启调试模式",action="store_true")
     parser.add_argument("--sessdata",help="使用登录会话标识",type=get_SESSDATA,metavar="SESSDATA|FILE")
@@ -916,6 +933,7 @@ def pararg(aarg:list[dict]|tuple[dict,...]=None)->"argparse.Namespace":
     dbg=parser.add_argument_group("调试功能")
     dbg.add_argument("-u","--save-unknow-datapack",help="保存未知的数据包",action="store_true")
     dbg.add_argument("-C","--print-pack-count",help="打印数据包计数",action="store_true")
+    dbg.add_argument("-c","--count-cmd",help="对某个cmd进行计数",action="append",metavar="CMD",default=[])
     dbg.add_argument("-s","--save-cmd",help="保存某个cmd数据包",action="append",metavar="CMD",default=[])
     # 关闭一个或多个cmd显示
     cmd=parser.add_argument_group("关闭某个cmd的显示")
@@ -928,7 +946,7 @@ def pararg(aarg:list[dict]|tuple[dict,...]=None)->"argparse.Namespace":
     cmd.add_argument("--no-super-chat-message",help="关闭醒目留言信息",action="store_true")
     cmd.add_argument("--no-live-interactive-game",help="关闭特殊数据格式弹幕",action="store_true")
     cmd.add_argument("--no-stop-live-room-list",help="关闭停止直播的房间列表信息",action="store_true")
-    cmd.add_argument("--no-hot-rank-changed",help="关闭当前直播间的排行信息",action="store_true")
+    cmd.add_argument("--no-danmu-aggregation",help="关闭弹幕聚集信息",action="store_true")
     cmd.add_argument("--no-online-rank-count",help="关闭高能用户计数信息",action="store_true")
     cmd.add_argument("--no-voice-join-list",help="关闭连麦列表信息",action="store_true")
     cmd.add_argument("--no-online-rank-top3",help="关闭前三个第一次成为高能用户信息",action="store_true")
@@ -941,20 +959,23 @@ def pararg(aarg:list[dict]|tuple[dict,...]=None)->"argparse.Namespace":
     cmd.add_argument("--no-user-toast-msg",help="关闭续费舰队信息",action="store_true")
     cmd.add_argument("--no-widget-banner",help="关闭小部件信息",action="store_true")
     cmd.add_argument("--no-super-chat-entrance",help="关醒目留言入口信息",action="store_true")
-    cmd.add_argument("--no-popularity-red-pocket-new",help="关闭新红包(?)信息",action="store_true")
+    cmd.add_argument("--no-popularity-red-pocket",help="关闭红包信息",action="store_true")
     cmd.add_argument("--no-like-info-update",help="关闭点赞计数信息",action="store_true")
     cmd.add_argument("--no-popular-rank-changed",help="关闭人气排行更新",action="store_true")
     cmd.add_argument("--no-area-rank-changed",help="关闭大航海排行更新",action="store_true")
-    cmd.add_argument("--no-dm-interaction",help="关闭弹幕合并信息",action="store_true")
+    cmd.add_argument("--no-dm-interaction",help="关闭交互合并信息",action="store_true")
     cmd.add_argument("--no-pk-message",help="关闭全部PK信息",action="store_true")
     cmd.add_argument("--no-pk-battle-process",help="关闭PK过程信息",action="store_true")
     cmd.add_argument("--no-recommend-card",help="关闭推荐卡片信息",action="store_true")
     cmd.add_argument("--save-recommend-card",help="保存推荐卡片信息(调试)",action="store_true")
     cmd.add_argument("--no-goto-buy-flow",help="关闭购买推荐商品信息",action="store_true")
+    cmd.add_argument("--no-guard-honor-thousand",help="关闭千舰主播增减信息",action="store_true")
     cmd.add_argument("--no-gift-star-process",help="关闭礼物星球进度信息",action="store_true")
     cmd.add_argument("--no-anchor-lot",help="关闭天选时刻信息",action="store_true")
     cmd.add_argument("--no-anchor-normal-notify",help="关闭推荐通知信息",action="store_true")
+    cmd.add_argument("--no-popular-rank-guide-card",help="关闭冲榜提示信息",action="store_true")
     cmd.add_argument("--no-sys-msg",help="关闭系统消息信息",action="store_true")
+    cmd.add_argument("--no-play-tag",help="关闭进度条标签信息",action="store_true")
     # 附加功能
     parser.add_argument("-S","--shielding-words",help="屏蔽词(完全匹配)",type=argparse.FileType("rt"),metavar="FILE")
     parser.add_argument("-B","--blocking-rules",help="屏蔽规则",type=argparse.FileType("rt"),metavar="FILE")
@@ -998,6 +1019,7 @@ def main():# 启动
         set_wslog()
     roomid=args.roomid
     print("直播间ID:",roomid)
+    log.info("处理屏蔽数据文件")
     if args.shielding_words:
         shielding_words(args.shielding_words)
     if args.blocking_rules:

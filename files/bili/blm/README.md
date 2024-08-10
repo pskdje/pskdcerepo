@@ -70,6 +70,10 @@ python bili_live_ws.py -h
 
 也许还能实现更强大的功能。
 
+### [requirement.txt]
+
+内容为需要的依赖库，必须和可选的依赖都会包括在内。
+
 ### [default_args.txt]
 
 ~~默认命令行参数~~ ~~(我也不知道这是什么，只是想有一个名称有 default 的文件)~~

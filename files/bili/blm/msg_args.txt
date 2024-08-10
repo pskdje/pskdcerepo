@@ -5,8 +5,9 @@
 --no-send-gift
 --no-combo-send
 --no-watched-change
+--no-live-interactive-game
 --no-stop-live-room-list
---no-hot-rank-changed
+--no-danmu-aggregation
 --no-online-rank-count
 --no-voice-join-list
 --no-online-rank-top3
@@ -19,7 +20,7 @@
 --no-user-toast-msg
 --no-widget-banner
 --no-super-chat-entrance
---no-popularity-red-pocket-new
+--no-popularity-red-pocket
 --no-like-info-update
 --no-popular-rank-changed
 --no-area-rank-changed
@@ -31,3 +32,4 @@
 --no-anchor-lot
 --no-anchor-normal-notify
 --no-sys-msg
+--no-play-tag
