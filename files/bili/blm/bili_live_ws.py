@@ -14,7 +14,7 @@
 import sys,os,time,json,re,zlib
 import errno,logging,traceback
 import requests
-import asyncio
+import asyncio,argparse
 import websockets
 from pathlib import Path
 try:
@@ -49,12 +49,15 @@ def error(d=None):# 错误记录
     log.exception("[error函数获得了异常]",stack_info=True,stacklevel=2)
     dp=Path("bili_live_ws_err")
     fp=dp/f"{time.time_ns()}.txt"
-    if not dp.is_dir():
-        log.info("新建保存错误文件用目录")
-        dp.mkdir()
-    def nsf():# 未成功保存
+    def nsf():# 未成功保存异常时调用
         log.exception(f"未成功保存错误文件，文件路径: {fp.resolve()}",stacklevel=2)
+        print("=====错误堆栈=====")
+        traceback.print_exc()
+        print("="*18)
     try:
+        if not dp.is_dir():
+            log.info("新建保存错误文件用目录")
+            dp.mkdir()
         with open(fp,"w")as f:
             f.write("哔哩哔哩直播信息流\n时间: ")
             f.write(time.strftime("%Y/%m/%d-%H:%M:%S%z"))
@@ -81,16 +84,15 @@ def error(d=None):# 错误记录
             if d is not None:
                 f.write("\n[其它信息]:\n\n"+str(d))
     except PermissionError as e:
-        nsf()
         print("无权限保存异常信息:",e)
-    except OSError as e:
         nsf()
+    except OSError as e:
         print("无法保存异常信息")
         print("OSError:",e)
-    except:
         nsf()
+    except:
         print("写入异常信息到文件失败！")
-        traceback.print_exc()
+        nsf()
     else:
         log.debug(f"错误信息已存储至: {fp}")
         if DEBUG:print("错误信息已存储至",str(fp))
@@ -262,6 +264,8 @@ def pac(pack,o):# 匹配cmd,处理内容
             l_room_lock(pack)
         case "ROOM_ADMINS":# 房管列表
             l_room_admins(pack)
+        case "CHANGE_ROOM_INFO":# 背景更换
+            l_change_room_info(pack)
         case "DANMU_AGGREGATION":# 弹幕聚集
             if not o.no_danmu_aggregation:
                 l_danmu_aggregation(pack["data"])
@@ -650,6 +654,19 @@ def print_test_pack_count():# 打印数据包计数
     for k,v in cn.items():
         print("cmd",k,"计数",v)
 
+class ArgsParser(argparse.ArgumentParser):
+    """参数解析，覆盖部分默认行为"""
+    def convert_arg_line_to_args(self,arg_line):
+        """处理一行参数
+        注：查源代码可得知，本方法需要参数输入一行文件，返回可迭代对象
+        """
+        if not arg_line:return []
+        if re.fullmatch(r"^\s*#.*$",arg_line):return []
+        if arg_line[0] in self.prefix_chars:
+            lco=arg_line.split("#",1)
+            return lco[0].split()
+        return [arg_line]
+
 def import_cmd_handle():
     """导入命令处理"""
     global is_importCmdHandle
@@ -741,6 +758,8 @@ def l_room_lock(p):
     print("[直播]","直播间",p["roomid"],"被封禁，解除时间:",p["expire"])
 def l_room_admins(p):
     print("[直播]",f"房管列表: len({len(p['uids'])})")
+def l_change_room_info(p):
+    print("[直播]","直播间",p["roomid"],"信息变更","背景图:",p["background"])
 def l_online_rank_count(d):
     olc=""
     if "online_count"in d:
@@ -913,16 +932,15 @@ def get_SESSDATA(s):# 获取登录会话标识
         return None
     return s
 
-def pararg(aarg:list[dict]|tuple[dict,...]=None)->"argparse.Namespace":
+def pararg(aarg:list[dict]|tuple[dict,...]=None)->argparse.Namespace:
     """命令行参数解析"""
-    import argparse
     global DEBUG
     global runoptions
     if runoptions:
         raise RuntimeError("检测到已进行过一次命令行参数获取")
     desc="哔哩哔哩直播信息流处理\n允许使用@来引入参数文件\n默认在文件夹下会附带bili_live_ws.md来提供额外信息"
     epil="关于登录信息的使用可查看md的参数部分。"
-    parser=argparse.ArgumentParser(usage="%(prog)s [options] roomid",description=desc,epilog=epil,formatter_class=argparse.RawDescriptionHelpFormatter,fromfile_prefix_chars="@")
+    parser=ArgsParser(usage="%(prog)s [options] roomid",description=desc,epilog=epil,formatter_class=argparse.RawDescriptionHelpFormatter,fromfile_prefix_chars="@")
     parser.add_argument("roomid",help="直播间ID",type=int,default=23058)
     parser.add_argument("-d","--debug",help="开启调试模式",action="store_true")
     parser.add_argument("--sessdata",help="使用登录会话标识",type=get_SESSDATA,metavar="SESSDATA|FILE")

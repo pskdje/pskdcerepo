@@ -156,6 +156,8 @@ def l_room_lock(b):# 封禁
     p("直播","直播间"+TRMI,b["roomid"],CD+"被封禁，解除时间:",b["expire"])
 def l_room_admins(b):# 房管列表
     p("直播",f"房管列表: len({len(b['uids'])})")
+def l_change_room_info(b):# 背景更换
+    p("直播",f"直播间 {TRMI}{b['roomid']}{CD} 信息变更 背景图: {DU}{b['background']}")
 def l_danmu_aggregation(d):# 弹幕聚集
     p("弹幕聚集",f"{C_10}{d['msg']}{CD} {TNUM}×{d['aggregation_num']}")
 def l_online_rank_count(d):# 在线计数
