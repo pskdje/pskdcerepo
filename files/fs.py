@@ -11,6 +11,7 @@ import io
 import sys
 import time
 import html
+import socket
 import contextlib
 import http.server
 import urllib.parse
@@ -22,6 +23,11 @@ DEFAULT_ERROR_MESSAGE: str = """<!DOCTYPE html>
 <html>
 	<head>
 		<meta charset="UTF-8" />
+		<style type="text/css">
+			:root {
+				color-scheme: light dark;
+			}
+		</style>
 		<title>错误响应</title>
 		<meta name="viewport" content="width=device-width,initail-scale=1.0" />
 	</head>
@@ -39,8 +45,8 @@ directory: str | None = None
 class WebServer(http.server.ThreadingHTTPServer):
     """服务器类"""
 
+    # 3.14 http.server L1392
     def server_bind(self)-> Any:
-        # http.server L1294
         with contextlib.suppress(Exception):
             self.socket.setsockopt(
                 socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
@@ -112,9 +118,11 @@ class FileHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
         enc = sys.getfilesystemencoding()
         title = f'路径 {displaypath} 的目录列表'
         r.append('<!DOCTYPE HTML>')
-        r.append('<html>\n<head>')
+        r.append('<html lang="zh">')
+        r.append('<head>')
         r.append(f'<meta charset="{enc}" />')
         r.append('<meta name="viewport" content="width=device-width,initail-scale=1.0" />')
+        r.append('<style type="text/css">\n:root {\n\tcolor-scheme: light dark;\n}\n</style>')
         r.append(f'<title>{title}</title>\n</head>')
         r.append(f'<body>\n<h1>{title}</h1>')
         r.append('<hr />\n<ul id="list">')
